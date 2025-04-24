@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "crates/*",
+]
+
+# shared dependency versions
+[workspace.dependencies]
+tokio     = "1.37"
+thiserror = "1.0"
+regex     = "1.10"
+
