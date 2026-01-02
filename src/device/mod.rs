@@ -21,11 +21,6 @@ use tokio::time::timeout;
 
 use crate::{AuthMethod, Client, ServerCheckMethod, ToSocketAddrsWithHostname};
 
-// pub use russh::cipher::Name as CipherName;
-// pub use russh::kex::Name as KexName;
-// pub use russh::mac::Name as MacName;
-
-/// Supported network device vendors and platforms.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum DeviceVendor {
