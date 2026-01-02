@@ -157,6 +157,6 @@ pub use device::{
 };
 
 // Re-export russh algorithm modules for direct use
-// pub use russh::cipher;
-// pub use russh::kex;
-// pub use russh::mac;
+pub use russh::cipher;
+pub use russh::kex;
+pub use russh::mac;
