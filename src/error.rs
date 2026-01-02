@@ -1,5 +1,6 @@
 use std::io;
 
+// use thiserror::Error;
 use tokio::sync::mpsc;
 
 /// This is the `thiserror` error for all crate errors.
@@ -45,4 +46,12 @@ pub enum Error {
     IoError(#[from] io::Error),
     #[error("Channel send error")]
     ChannelSendError(#[from] mpsc::error::SendError<Vec<u8>>),
+    #[error("Invalid prompt pattern: {0}")]
+    InvalidPromptPattern(String),
+    #[error("Device command timed out waiting for prompt")]
+    DeviceTimeout,
+    #[error("Device session was closed unexpectedly")]
+    DeviceSessionClosed,
+    #[error("Invalid address: {0}")]
+    InvalidAddress(String),
 }

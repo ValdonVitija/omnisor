@@ -1,14 +1,22 @@
 [package]
-name = "async-ssh2-tokio"
-version = "0.12.1"
+name = "omnisor"
+version = "0.1.0"
 edition = "2024"
 license-file = "LICENSE"
 readme = "README.md"
-description = "Asynchronous and easy-to-use high level ssh client library for rust."
-keywords = ["async", "asynchronous", "ssh", "ssh2", "ssh-client"]
-repository = "https://github.com/Miyoshi-Ryota/async-ssh2-tokio"
+description = "A vendor-agnostic CLI Swiss Army knife for network troubleshooting, offering extraction, aggregation, and querying of device data, while also offering a clean, fully capable api to handle ssh connections towards network devices."
+keywords = [
+    "async",
+    "asynchronous",
+    "ssh",
+    "ssh2",
+    "ssh-client",
+    "high level",
+    "networking",
+]
+repository = "https://github.com/ValdonVitija/omnisor"
 categories = ["network-programming"]
-authors = ["Miyoshi-Ryota <m1yosh1.ry0t4@gmail.com>"]
+authors = ["Valdon Vitija <valdonvitijaa@gmail.com>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -21,6 +29,7 @@ log = "0.4"
 russh-sftp = "2.1.1"
 thiserror = "2.0.17"
 tokio = { version = "1.45.1", features = ["fs"] }
+regex = "1.12.2"
 
 [dev-dependencies]
 dotenv = "0.15.0"
