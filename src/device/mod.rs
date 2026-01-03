@@ -51,6 +51,8 @@ impl DeviceVendor {
         self.clone().into_config()
     }
 
+    // NOTE: Not sure if this if correct, but tried to do it with what I found about EOS, because
+    // I don't have a lab device to test against.
     fn arista_eos_config() -> DeviceConfig {
         DeviceConfig::with_prompt(r"[\r\n][\w\-\.]+[#>]\s*$")
             .add_disable_paging_command("terminal length 0")
@@ -195,6 +197,8 @@ impl SshAlgorithms {
 pub struct DeviceConfig {
     /// Regex pattern to detect the command prompt
     pub prompt_pattern: String,
+    /// Optional regex pattern to detect the enable mode prompt
+    pub enable_mode_prompt_pattern: Option<String>,
     /// Timeout for waiting for prompt after sending a command
     pub command_timeout: Duration,
     /// Optional patterns that indicate an error occurred
@@ -210,7 +214,7 @@ pub struct DeviceConfig {
     /// Read buffer size
     pub read_buffer_size: usize,
     /// Small delay between reads to allow output to accumulate
-    pub read_delay: Duration,
+    pub read_delay: Option<Duration>,
     /// SSH algorithm preferences for this device type. When dealing with older devices,
     /// you will often need to explicitly set which algorithms the target device supports.
     pub ssh_algorithms: Option<SshAlgorithms>,
@@ -220,6 +224,7 @@ impl Default for DeviceConfig {
     fn default() -> Self {
         Self {
             prompt_pattern: r"[\r\n][\w\-\.]+[#>$]\s*$".to_string(),
+            enable_mode_prompt_pattern: None,
             command_timeout: Duration::from_secs(30),
             error_patterns: vec![],
             term_type: "xterm".to_string(),
@@ -227,7 +232,7 @@ impl Default for DeviceConfig {
             term_height: 24,
             disable_paging_commands: vec![],
             read_buffer_size: 65536,
-            read_delay: Duration::from_millis(100),
+            read_delay: None,
             ssh_algorithms: None,
         }
     }
@@ -274,7 +279,7 @@ impl DeviceConfig {
     }
 
     /// Set the read delay between chunk reads.
-    pub fn read_delay(mut self, delay: Duration) -> Self {
+    pub fn read_delay(mut self, delay: Option<Duration>) -> Self {
         self.read_delay = delay;
         self
     }
@@ -501,7 +506,7 @@ impl DeviceSession {
     }
 
     async fn read_chunk(&mut self) -> Result<String, crate::Error> {
-        tokio::time::sleep(self.config.read_delay).await;
+        // tokio::time::sleep(self.config.read_delay).await;
 
         let mut output = String::new();
 
@@ -571,6 +576,19 @@ impl DeviceSession {
             }
         }
         (false, None)
+    }
+
+    // Adding helper methods to manage enable mode, since a large portion of network device interaction relies on it.
+    fn check_enable_mode(&self, output: &str) -> bool {}
+    fn enter_enable_mode(
+        &mut self,
+        command: &str,
+        enable_secret: &str,
+    ) -> Result<(), crate::Error> {
+        Ok(())
+    }
+    fn exit_from_enable_mode(&self, command: &str) -> Result<(), crate::Error> {
+        Ok(())
     }
 
     /// Close the session gracefully.
@@ -721,7 +739,7 @@ impl DeviceSessionBuilder {
             format!("{}:{}", address, self.port)
         };
 
-        let mut config = self.vendor.into_config();
+        let config = self.vendor.into_config();
 
         //NOTE: Will think about this again, because it feels a bit to unnecessary atm
 
