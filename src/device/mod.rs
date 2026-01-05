@@ -199,6 +199,8 @@ pub struct DeviceConfig {
     pub prompt_pattern: String,
     /// Optional regex pattern to detect the enable mode prompt
     pub enable_mode_prompt_pattern: Option<String>,
+    /// Optional regex pattern to detect the enable mode password if prompted
+    pub enable_mode_password_prompt_pattern: Option<String>,
     /// Timeout for waiting for prompt after sending a command
     pub command_timeout: Duration,
     /// Optional patterns that indicate an error occurred
@@ -224,7 +226,8 @@ impl Default for DeviceConfig {
     fn default() -> Self {
         Self {
             prompt_pattern: r"[\r\n][\w\-\.]+[#>$]\s*$".to_string(),
-            enable_mode_prompt_pattern: None,
+            enable_mode_prompt_pattern: r"[\r\n][\w\-\.]+[#]\s*$".to_string().into(),
+            enable_mode_password_prompt_pattern: r"(?i)password:".to_string().into(),
             command_timeout: Duration::from_secs(30),
             error_patterns: vec![],
             term_type: "xterm".to_string(),
@@ -246,7 +249,14 @@ impl DeviceConfig {
             ..Default::default()
         }
     }
-
+    pub fn add_enable_mode_prompt_pattern(mut self, pattern: impl Into<String>) -> Self {
+        self.enable_mode_prompt_pattern = Some(pattern.into());
+        self
+    }
+    pub fn add_enable_mode_password_prompt_pattern(mut self, pattern: impl Into<String>) -> Self {
+        self.enable_mode_password_prompt_pattern = Some(pattern.into());
+        self
+    }
     /// Set the command timeout.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.command_timeout = timeout;
@@ -425,6 +435,8 @@ impl DeviceSession {
         self.channel.data(cmd_with_newline.as_bytes()).await?;
 
         let raw_output = self.wait_for_prompt().await?;
+        dbg!("INSIDE RAW OUTPUT: ");
+        dbg!(&raw_output);
 
         let output = self.clean_output(&raw_output, command);
         let (has_error, error_match) = self.check_for_errors(&raw_output);
@@ -511,7 +523,7 @@ impl DeviceSession {
         let mut output = String::new();
 
         while let Ok(Some(msg)) =
-            tokio::time::timeout(Duration::from_millis(50), self.channel.wait()).await
+            tokio::time::timeout(Duration::from_millis(40), self.channel.wait()).await
         {
             match msg {
                 russh::ChannelMsg::Data { data } => {
@@ -578,22 +590,116 @@ impl DeviceSession {
         (false, None)
     }
 
-    // Adding helper methods to manage enable mode, since a large portion of network device interaction relies on it.
-    fn check_enable_mode(&self, output: &str) -> bool {}
-    fn enter_enable_mode(
+    /// Check if we're currently in enable mode by checking the prompt
+    async fn check_enable_mode(&mut self) -> bool {
+        if let Some(ref pattern) = self.config.enable_mode_prompt_pattern {
+            if let Ok(regex) = Regex::new(pattern) {
+                // Send an empty line to get the current prompt
+                if let Ok(result) = self.send_command("").await {
+                    return regex.is_match(&result.raw_output);
+                }
+            }
+        }
+        false
+    }
+
+    /// Tries to enter enable mode using the provided command
+    pub async fn enter_enable_mode(
         &mut self,
         command: &str,
-        enable_secret: &str,
+        enable_secret: Option<&str>,
     ) -> Result<(), crate::Error> {
+        // Check if already in enable mode
+        if self.check_enable_mode().await {
+            return Ok(());
+        }
+
+        self.send_line(command).await?;
+
+        let output = self.wait_for_prompt_or_pattern().await?;
+
+        // Check if we got a password prompt
+        if let Some(ref pwd_pattern) = self.config.enable_mode_password_prompt_pattern {
+            if let Ok(pwd_regex) = Regex::new(pwd_pattern) {
+                if pwd_regex.is_match(&output) {
+                    // Password required
+                    if let Some(secret) = enable_secret {
+                        self.send_line(secret).await?;
+                        let _ = self.wait_for_prompt().await?;
+
+                        if self.check_enable_mode().await {
+                            return Ok(());
+                        } else {
+                            return Err(crate::Error::EnableModePasswordFailed);
+                        }
+                    } else {
+                        return Err(crate::Error::EnableModePasswordFailed);
+                    }
+                }
+            }
+        }
+
+        // Check if we're now in enable mode (no password was required)
+        if self.check_enable_mode().await {
+            return Ok(());
+        }
+
+        Err(crate::Error::EnableModeCommandFailed)
+    }
+
+    /// Exit from enable mode back to user mode
+    pub async fn exit_from_enable_mode(&mut self, command: &str) -> Result<(), crate::Error> {
+        if !self.check_enable_mode().await {
+            return Ok(());
+        }
+
+        let result = self.send_command(command).await?;
+
+        if result.has_error {
+            return Err(crate::Error::EnableCommandDidntExit);
+        }
+
+        if self.check_enable_mode().await {
+            return Err(crate::Error::EnableCommandDidntExit);
+        }
+
         Ok(())
     }
-    fn exit_from_enable_mode(&self, command: &str) -> Result<(), crate::Error> {
-        Ok(())
+
+    /// Wait for either the standard prompt or a specific pattern (like password prompt)
+    async fn wait_for_prompt_or_pattern(&mut self) -> Result<String, crate::Error> {
+        let result = timeout(self.config.command_timeout, async {
+            let mut accumulated = {
+                let buf = self.buffer.lock().await;
+                buf.clone()
+            };
+
+            loop {
+                let data = self.read_chunk().await?;
+                accumulated.push_str(&data);
+
+                if self.prompt_regex.is_match(&accumulated) {
+                    return Ok(accumulated);
+                }
+
+                if let Some(ref pwd_pattern) = self.config.enable_mode_password_prompt_pattern {
+                    if let Ok(pwd_regex) = Regex::new(pwd_pattern) {
+                        if pwd_regex.is_match(&accumulated) {
+                            return Ok(accumulated);
+                        }
+                    }
+                }
+            }
+        })
+        .await
+        .map_err(|_| crate::Error::DeviceTimeout)?;
+
+        result
     }
 
     /// Close the session gracefully.
     pub async fn close(self) -> Result<(), crate::Error> {
-        self.channel.eof().await?;
+        // self.channel.eof().await?;
         self.channel.close().await.map_err(crate::Error::SshError)?;
         self.client.disconnect().await?;
         Ok(())
