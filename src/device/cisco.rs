@@ -29,8 +29,8 @@ impl CiscoVariant {
     }
 
     fn ios_config() -> DeviceConfig {
-        DeviceConfig::with_prompt(r"[\r\n][\w\-\.]+[#>]\s*$")
-            .add_enable_mode_prompt_pattern(r"[\r\n][\w\-\.]+[#]\s*$")
+        DeviceConfig::with_prompt(r"(?:^|[\r\n])[\w\-\.]+[#>]\s*$")
+            .add_enable_mode_prompt_pattern(r"(?:^|[\r\n])[\w\-\.]+[#]\s*$")
             .add_enable_mode_password_prompt_pattern(r"(?i)password:")
             .add_disable_paging_command("terminal length 0")
             .add_disable_paging_command("terminal width 512")
@@ -41,8 +41,8 @@ impl CiscoVariant {
     }
 
     fn ios_xr_config() -> DeviceConfig {
-        DeviceConfig::with_prompt(r"[\r\n][\w\-\.:\/]+[#>]\s*$")
-            .add_enable_mode_prompt_pattern(r"[\r\n][\w\-\.:\/]+[#]\s*$")
+        DeviceConfig::with_prompt(r"(?:^|[\r\n])[\w\-\.:\/]+[#>]\s*$")
+            .add_enable_mode_prompt_pattern(r"(?:^|[\r\n])[\w\-\.:\/]+[#]\s*$")
             .add_enable_mode_password_prompt_pattern(r"(?i)password:")
             .add_disable_paging_command("terminal length 0")
             .add_disable_paging_command("terminal width 512")
@@ -53,8 +53,8 @@ impl CiscoVariant {
     }
 
     fn nxos_config() -> DeviceConfig {
-        DeviceConfig::with_prompt(r"[\r\n][\w\-\.]+[#>]\s*$")
-            .add_enable_mode_prompt_pattern(r"[\r\n][\w\-\.]+[#]\s*$")
+        DeviceConfig::with_prompt(r"(?:^|[\r\n])[\w\-\.]+[#>]\s*$")
+            .add_enable_mode_prompt_pattern(r"(?:^|[\r\n])[\w\-\.]+[#]\s*$")
             .add_enable_mode_password_prompt_pattern(r"(?i)password:")
             .add_disable_paging_command("terminal length 0")
             .add_disable_paging_command("terminal width 511")
@@ -65,8 +65,8 @@ impl CiscoVariant {
     }
 
     fn asa_config() -> DeviceConfig {
-        DeviceConfig::with_prompt(r"[\r\n][\w\-\.\/]+[#>]\s*$")
-            .add_enable_mode_prompt_pattern(r"[\r\n][\w\-\.\/]+[#]\s*$")
+        DeviceConfig::with_prompt(r"(?:^|[\r\n])[\w\-\.\/]+[#>]\s*$")
+            .add_enable_mode_prompt_pattern(r"(?:^|[\r\n])[\w\-\.\/]+[#]\s*$")
             .add_disable_paging_command("terminal pager 0")
             .add_error_pattern(r"ERROR:")
             .add_error_pattern(r"% Invalid")
@@ -75,7 +75,7 @@ impl CiscoVariant {
 
     fn wlc_config() -> DeviceConfig {
         // WLC has a different prompt style: (Cisco Controller) >
-        DeviceConfig::with_prompt(r"[\r\n]\([^\)]+\)\s*[#>]\s*$")
+        DeviceConfig::with_prompt(r"(?:^|[\r\n])\([^\)]+\)\s*[#>]\s*$")
             .add_disable_paging_command("config paging disable")
             .add_error_pattern(r"Incorrect usage")
             .add_error_pattern(r"Invalid")
