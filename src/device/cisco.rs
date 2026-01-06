@@ -82,8 +82,8 @@ impl CiscoVariant {
     }
 
     fn ios_legacy_config() -> DeviceConfig {
-        DeviceConfig::with_prompt(r"[\r\n][\w\-\.]+[#>]\s*$")
-            .add_enable_mode_prompt_pattern(r"[\r\n][\w\-\.]+[#]\s*$")
+        DeviceConfig::with_prompt(r"(?:^|[\r\n])[\w\-\.]+[#>$]\s*$")
+            .add_enable_mode_prompt_pattern(r"(?:^|[\r\n])[\w\-\.]+[#]\s*$")
             .add_enable_mode_password_prompt_pattern(r"(?i)password:")
             .add_disable_paging_command("terminal length 0")
             .add_disable_paging_command("terminal width 512")
