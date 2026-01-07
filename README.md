@@ -1,15 +1,18 @@
+![Omnisor Logo](logo.png)
+
 # Omnisor
 
-Omnisor is an asynchronous and easy-to-use high-level SSH client library for Rust, with specialized support for network devices.
+Omnisor is an asynchronous high-level SSH client library for Rust, with specialized support for network devices.
 
-Built on top of [russh](https://github.com/warp-tech/russh).
+Built on top of [async-ssh2-tokio]( https://github.com/Miyoshi-Ryota/async-ssh2-tokio) & [russh](https://github.com/warp-tech/russh)
 
 ## Features
 
-* **Standard SSH Client** - Connect, authenticate, and execute commands on remote hosts
+* **Standard SSH Client** - Connect, authenticate, and execute commands on network devices.
 * **Network Device Sessions** - Interactive PTY sessions for routers, switches, and firewalls
 * **Vendor Presets** - Built-in support for Cisco, Juniper and more soon enough
 * **Legacy Device Support** - Configurable SSH algorithms for older network equipment
+
 
 ## Install
 
@@ -21,27 +24,8 @@ omnisor = "0.1"
 
 ## Quick Start - Standard SSH
 
-For simple command execution on Linux/Unix servers:
+For simple command execution on Linux/Unix servers, just use https://github.com/Miyoshi-Ryota/async-ssh2-tokio, since omnisor is forked from async-ssh2-tokio.
 
-```rust
-use omnisor::{Client, AuthMethod, ServerCheckMethod};
-
-#[tokio::main]
-async fn main() -> Result<(), omnisor::Error> {
-    let mut client = Client::connect(
-        ("10.10.10.2", 22),
-        "root",
-        AuthMethod::with_password("password"),
-        ServerCheckMethod::NoCheck,
-    ).await?;
-
-    let result = client.execute("echo Hello SSH").await?;
-    assert_eq!(result.stdout, "Hello SSH\n");
-    assert_eq!(result.exit_status, 0);
-
-    Ok(())
-}
-```
 
 ## Quick Start - Network Devices
 
@@ -68,25 +52,6 @@ async fn main() -> Result<(), omnisor::Error> {
     session.close().await?;
     Ok(())
 }
-```
-
-## Authentication Methods
-
-```rust
-use omnisor::AuthMethod;
-
-// Password authentication
-let auth = AuthMethod::with_password("secret");
-
-// Private key from file
-let auth = AuthMethod::with_key_file("~/.ssh/id_rsa", None);
-
-// Private key with passphrase
-let auth = AuthMethod::with_key_file("~/.ssh/id_rsa", Some("passphrase"));
-
-// SSH agent (Unix/Linux only)
-#[cfg(not(target_os = "windows"))]
-let auth = AuthMethod::with_agent();
 ```
 
 ## Device Session Builder
@@ -144,7 +109,7 @@ async fn main() -> Result<(), omnisor::Error> {
 
 ### Custom SSH Algorithms
 
-For fine-grained control over SSH algorithms:
+For control over SSH algorithms you can specify whatever you like that is supported under https://github.com/Eugeny/russh
 
 ```rust
 use omnisor::{DeviceSession, CiscoVariant, SshAlgorithms, kex, cipher, mac};

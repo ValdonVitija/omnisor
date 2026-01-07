@@ -704,6 +704,9 @@ impl DeviceSession {
     }
 
     /// Wait for either the standard prompt or a specific pattern (mostly for password prompt like on enable mode, but not restricted)
+    /// We can do better here, because this function might feel a bit redundant, since we can combile some other functions
+    /// to achieve the same thing in enter_enable_mode.
+    /// NOTE: Needs refactoring, but not rn.
     async fn wait_for_prompt_or_pattern(&mut self) -> Result<String, crate::Error> {
         let result = timeout(self.config.command_timeout, async {
             let mut accumulated = std::mem::take(&mut self.buffer);
@@ -736,7 +739,7 @@ impl DeviceSession {
         }
         false
     }
-    pub async fn enable_config_mode(&mut self, command: &str) -> Result<(), crate::Error> {
+    pub async fn enter_config_mode(&mut self, command: &str) -> Result<(), crate::Error> {
         if self.check_config_mode().await {
             // Ensure regex is updated
             if let Some(ref regex) = self.config_regex {
