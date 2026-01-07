@@ -54,4 +54,12 @@ pub enum Error {
     DeviceSessionClosed,
     #[error("Invalid address: {0}")]
     InvalidAddress(String),
+    #[error("EnableModePasswordFailed")]
+    EnableModePasswordFailed,
+    #[error("EnableModeCommandFailed")]
+    EnableModeCommandFailed,
+    #[error("EnableCommandDidntExit")]
+    EnableCommandDidntExit,
+    #[error("ConfigCommandDidntExit")]
+    ConfigCommandDidntExit,
 }

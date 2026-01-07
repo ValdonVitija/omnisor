@@ -16,7 +16,6 @@ use russh::client::Config;
 use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
 use tokio::time::timeout;
 
 use crate::{AuthMethod, Client, ServerCheckMethod, ToSocketAddrsWithHostname};
@@ -51,6 +50,8 @@ impl DeviceVendor {
         self.clone().into_config()
     }
 
+    // NOTE: Not sure if this if correct, but tried to do it with what I found about EOS, because
+    // I don't have a lab device to test against.
     fn arista_eos_config() -> DeviceConfig {
         DeviceConfig::with_prompt(r"[\r\n][\w\-\.]+[#>]\s*$")
             .add_disable_paging_command("terminal length 0")
@@ -114,19 +115,16 @@ impl SshAlgorithms {
         Self::default()
     }
 
-    /// Set preferred key exchange algorithms.
     pub fn kex(mut self, algorithms: Vec<russh::kex::Name>) -> Self {
         self.kex = Some(algorithms);
         self
     }
 
-    /// Set preferred cipher algorithms.
     pub fn cipher(mut self, algorithms: Vec<russh::cipher::Name>) -> Self {
         self.cipher = Some(algorithms);
         self
     }
 
-    /// Set preferred MAC algorithms.
     pub fn mac(mut self, algorithms: Vec<russh::mac::Name>) -> Self {
         self.mac = Some(algorithms);
         self
@@ -195,6 +193,12 @@ impl SshAlgorithms {
 pub struct DeviceConfig {
     /// Regex pattern to detect the command prompt
     pub prompt_pattern: String,
+    /// Optional regex pattern to detect the enable mode prompt
+    pub enable_mode_prompt_pattern: Option<String>,
+    /// Optional regex pattern to detect the enable mode password if prompted
+    pub enable_mode_password_prompt_pattern: Option<String>,
+    /// Optional regex pattern to detect configuration mode
+    pub config_mode_prompt_pattern: Option<String>,
     /// Timeout for waiting for prompt after sending a command
     pub command_timeout: Duration,
     /// Optional patterns that indicate an error occurred
@@ -210,7 +214,7 @@ pub struct DeviceConfig {
     /// Read buffer size
     pub read_buffer_size: usize,
     /// Small delay between reads to allow output to accumulate
-    pub read_delay: Duration,
+    pub read_delay: Option<Duration>,
     /// SSH algorithm preferences for this device type. When dealing with older devices,
     /// you will often need to explicitly set which algorithms the target device supports.
     pub ssh_algorithms: Option<SshAlgorithms>,
@@ -219,7 +223,12 @@ pub struct DeviceConfig {
 impl Default for DeviceConfig {
     fn default() -> Self {
         Self {
-            prompt_pattern: r"[\r\n][\w\-\.]+[#>$]\s*$".to_string(),
+            prompt_pattern: r"(?:^|[\r\n])[\w\-\.]+[#>$]\s*$".to_string(),
+            enable_mode_prompt_pattern: r"(?:^|[\r\n])[\w\-\.]+[#]\s*$".to_string().into(),
+            enable_mode_password_prompt_pattern: r"(?i)password:".to_string().into(),
+            config_mode_prompt_pattern: r"(?:^|[\r\n])[\w\-\.:\/]+\(config[^\)]*\)#\s*$"
+                .to_string()
+                .into(),
             command_timeout: Duration::from_secs(30),
             error_patterns: vec![],
             term_type: "xterm".to_string(),
@@ -227,75 +236,72 @@ impl Default for DeviceConfig {
             term_height: 24,
             disable_paging_commands: vec![],
             read_buffer_size: 65536,
-            read_delay: Duration::from_millis(100),
+            read_delay: None,
             ssh_algorithms: None,
         }
     }
 }
-
+/// The following functions allow to set all deviceconfig paramters using the builder pattern
 impl DeviceConfig {
-    /// Create a new device configuration with a custom prompt pattern.
     pub fn with_prompt(prompt_pattern: impl Into<String>) -> Self {
         Self {
             prompt_pattern: prompt_pattern.into(),
             ..Default::default()
         }
     }
-
-    /// Set the command timeout.
+    pub fn add_enable_mode_prompt_pattern(mut self, pattern: impl Into<String>) -> Self {
+        self.enable_mode_prompt_pattern = Some(pattern.into());
+        self
+    }
+    pub fn add_enable_mode_password_prompt_pattern(mut self, pattern: impl Into<String>) -> Self {
+        self.enable_mode_password_prompt_pattern = Some(pattern.into());
+        self
+    }
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.command_timeout = timeout;
         self
     }
 
-    /// Add an error pattern to detect command failures.
     pub fn add_error_pattern(mut self, pattern: impl Into<String>) -> Self {
         self.error_patterns.push(pattern.into());
         self
     }
 
-    /// Add a command to disable pagination.
     pub fn add_disable_paging_command(mut self, command: impl Into<String>) -> Self {
         self.disable_paging_commands.push(command.into());
         self
     }
 
-    /// Set terminal dimensions.
     pub fn terminal_size(mut self, width: u32, height: u32) -> Self {
         self.term_width = width;
         self.term_height = height;
         self
     }
 
-    /// Set the terminal type.
     pub fn term_type(mut self, term_type: impl Into<String>) -> Self {
         self.term_type = term_type.into();
         self
     }
 
-    /// Set the read delay between chunk reads.
-    pub fn read_delay(mut self, delay: Duration) -> Self {
+    pub fn read_delay(mut self, delay: Option<Duration>) -> Self {
         self.read_delay = delay;
         self
     }
 
-    /// Set SSH algorithm preferences.
     pub fn ssh_algorithms(mut self, algorithms: SshAlgorithms) -> Self {
         self.ssh_algorithms = Some(algorithms);
         self
     }
 
-    /// Use legacy SSH algorithms (for older devices).
     pub fn with_legacy_algorithms(self) -> Self {
         self.ssh_algorithms(SshAlgorithms::legacy())
     }
 
-    /// Use modern SSH algorithms.
     pub fn with_modern_algorithms(self) -> Self {
         self.ssh_algorithms(SshAlgorithms::modern())
     }
 
-    /// Build a russh Config from this DeviceConfig.
+    /// Builds a russh Config from this DeviceConfig
     pub(crate) fn to_ssh_config(&self) -> Config {
         let mut config = Config::default();
 
@@ -313,20 +319,29 @@ pub struct DeviceCommandResult {
     pub raw_output: String,
     /// The cleaned output (command echo and final prompt stripped)
     pub output: String,
-    /// Whether an error pattern was detected in the output
+    /// Whether an error pattern was detected in the output.
     pub has_error: bool,
-    /// The matched error pattern, if any
+    /// The matched error pattern, if any. The number of error messages
+    /// is quite hard to be determined as of now by me, but I want something like this to be a valid
+    /// parameter when getting the command result.
     pub error_match: Option<String>,
 }
 
 /// A high level abstraction to interact with network devices over SSH with an interactive pty session.
+#[derive(Debug)]
 pub struct DeviceSession {
     client: Client,
     channel: russh::Channel<russh::client::Msg>,
-    config: DeviceConfig,
+    config: Arc<DeviceConfig>,
+    /// This stores the prompt we are currently interested in. That can change between user/enable/config modes
     prompt_regex: Regex,
+    /// The initial/default prompt pattern. When we enter a device, this should be generic to match either user or enable mode.
+    base_prompt_regex: Regex,
     error_regexes: Vec<Regex>,
-    buffer: Arc<Mutex<String>>,
+    enable_regex: Option<Regex>,
+    enable_password_regex: Option<Regex>,
+    config_regex: Option<Regex>,
+    buffer: String,
 }
 
 impl DeviceSession {
@@ -354,14 +369,13 @@ impl DeviceSession {
 
         Self::from_client(client, config).await
     }
-
-    /// Connect using a builder for more configuration options.
+    /// Use this method if you want to create a new device session using the builder pattern by chaining method calls to set
+    /// parameters in sequence
     pub fn builder() -> DeviceSessionBuilder {
         DeviceSessionBuilder::new()
     }
 
-    /// Create a device session from an existing SSH client. The client you pass to this function is 'wrapped' into the DeviceSession.
-    /// Recommended to use DeviceSession::connect or DeviceSessionBuilder instead.
+    /// Create a device session from an existing SSH client.
     pub async fn from_client(client: Client, config: DeviceConfig) -> Result<Self, crate::Error> {
         let channel = client.get_channel().await?;
 
@@ -379,8 +393,10 @@ impl DeviceSession {
 
         channel.request_shell(true).await?;
 
-        let prompt_regex = Regex::new(&config.prompt_pattern)
+        let base_prompt_regex = Regex::new(&config.prompt_pattern)
             .map_err(|e| crate::Error::InvalidPromptPattern(e.to_string()))?;
+
+        let prompt_regex = base_prompt_regex.clone();
 
         let error_regexes: Vec<Regex> = config
             .error_patterns
@@ -388,37 +404,57 @@ impl DeviceSession {
             .map(|p| Regex::new(p).map_err(|e| crate::Error::InvalidPromptPattern(e.to_string())))
             .collect::<Result<Vec<Regex>, _>>()?;
 
+        let enable_regex = if let Some(ref p) = config.enable_mode_prompt_pattern {
+            Some(Regex::new(p).map_err(|e| crate::Error::InvalidPromptPattern(e.to_string()))?)
+        } else {
+            None
+        };
+
+        let enable_password_regex = if let Some(ref p) = config.enable_mode_password_prompt_pattern
+        {
+            Some(Regex::new(p).map_err(|e| crate::Error::InvalidPromptPattern(e.to_string()))?)
+        } else {
+            None
+        };
+
+        let config_regex = if let Some(ref p) = config.config_mode_prompt_pattern {
+            Some(Regex::new(p).map_err(|e| crate::Error::InvalidPromptPattern(e.to_string()))?)
+        } else {
+            None
+        };
+
+        let config_arc = Arc::new(config);
+
         let mut session = Self {
             client,
             channel,
-            config: config.clone(),
+            config: config_arc.clone(),
             prompt_regex,
+            base_prompt_regex,
             error_regexes,
-            buffer: Arc::new(Mutex::new(String::new())),
+            enable_regex,
+            enable_password_regex,
+            config_regex,
+            buffer: String::with_capacity(4096),
         };
 
         session.wait_for_prompt().await?;
 
-        for cmd in &config.disable_paging_commands {
+        for cmd in &config_arc.disable_paging_commands {
             session.send_command(cmd).await?;
         }
 
         Ok(session)
     }
 
-    /// Send a command and wait for the prompt to return.
     pub async fn send_command(
         &mut self,
         command: &str,
     ) -> Result<DeviceCommandResult, crate::Error> {
-        {
-            let mut buf = self.buffer.lock().await;
-            buf.clear();
-        }
+        self.buffer.clear();
 
         let cmd_with_newline = format!("{}\n", command);
         self.channel.data(cmd_with_newline.as_bytes()).await?;
-
         let raw_output = self.wait_for_prompt().await?;
 
         let output = self.clean_output(&raw_output, command);
@@ -432,20 +468,23 @@ impl DeviceSession {
         })
     }
 
-    /// Send raw data without waiting for a prompt.
+    /// Send raw data without waiting for a prompt. Might be useful for quick executions, to get on a new line or whatever.
     pub async fn send_raw(&mut self, data: &str) -> Result<(), crate::Error> {
         self.channel.data(data.as_bytes()).await?;
         Ok(())
     }
 
-    /// Send a line (with newline appended) without waiting for prompt.
+    /// Exacly as send_raw, but automatically adds a new line at the end of the given str
     pub async fn send_line(&mut self, line: &str) -> Result<(), crate::Error> {
         self.send_raw(&format!("{}\n", line)).await
     }
 
-    /// Read available data without waiting for prompt.
+    /// It just consumes the available data left on the channel and it does not wait for any prompt or pattern to match
     pub async fn read_available(&mut self) -> Result<String, crate::Error> {
-        self.read_with_timeout(Duration::from_millis(500)).await
+        let mut output = String::new();
+        self.read_with_timeout(Duration::from_millis(500), &mut output)
+            .await?;
+        Ok(output)
     }
 
     /// Wait for a specific pattern to appear in the output.
@@ -453,21 +492,7 @@ impl DeviceSession {
         let regex =
             Regex::new(pattern).map_err(|e| crate::Error::InvalidPromptPattern(e.to_string()))?;
 
-        let result = timeout(self.config.command_timeout, async {
-            let mut accumulated = String::new();
-            loop {
-                let data = self.read_chunk().await?;
-                accumulated.push_str(&data);
-
-                if regex.is_match(&accumulated) {
-                    return Ok(accumulated);
-                }
-            }
-        })
-        .await
-        .map_err(|_| crate::Error::DeviceTimeout)?;
-
-        result
+        self.wait_for_regex(&regex).await
     }
 
     pub fn config(&self) -> &DeviceConfig {
@@ -479,55 +504,77 @@ impl DeviceSession {
     }
 
     async fn wait_for_prompt(&mut self) -> Result<String, crate::Error> {
+        let regex: Regex = self.prompt_regex.clone();
+        self.wait_for_regex(&regex).await
+    }
+    /// Helper for basically any type of regex. I want to have a function that can be exposed and used by the potential crate user
+    /// and not just by the rest of the functions here internally.
+    async fn wait_for_regex(&mut self, regex: &Regex) -> Result<String, crate::Error> {
         let result = timeout(self.config.command_timeout, async {
-            let mut accumulated = {
-                let buf = self.buffer.lock().await;
-                buf.clone()
-            };
-
+            let mut accumulated = std::mem::take(&mut self.buffer);
             loop {
-                let data = self.read_chunk().await?;
-                accumulated.push_str(&data);
+                self.read_chunk(&mut accumulated).await?;
 
-                if self.prompt_regex.is_match(&accumulated) {
+                if regex.is_match(&accumulated) {
                     return Ok(accumulated);
                 }
             }
         })
         .await
         .map_err(|_| crate::Error::DeviceTimeout)?;
-
         result
     }
 
-    async fn read_chunk(&mut self) -> Result<String, crate::Error> {
-        tokio::time::sleep(self.config.read_delay).await;
-
-        let mut output = String::new();
+    /// Reads incoming data and appends it to the provided buffer.
+    async fn read_chunk(&mut self, output: &mut String) -> Result<usize, crate::Error> {
+        let mut got_data = false;
+        let start_len = output.len();
 
         while let Ok(Some(msg)) =
-            tokio::time::timeout(Duration::from_millis(50), self.channel.wait()).await
+            tokio::time::timeout(Duration::from_millis(10), self.channel.wait()).await
         {
             match msg {
                 russh::ChannelMsg::Data { data } => {
                     output.push_str(&String::from_utf8_lossy(&data));
+                    got_data = true;
                 }
-                russh::ChannelMsg::Eof => {
+                russh::ChannelMsg::ExtendedData { data, .. } => {
+                    output.push_str(&String::from_utf8_lossy(&data));
+                    got_data = true;
+                }
+                russh::ChannelMsg::Eof | russh::ChannelMsg::Close => {
                     return Err(crate::Error::DeviceSessionClosed);
                 }
-                russh::ChannelMsg::Close => {
-                    return Err(crate::Error::DeviceSessionClosed);
+                // russh::ChannelMsg::Success
+                // | russh::ChannelMsg::WindowAdjusted { .. }
+                // | russh::ChannelMsg::Signal { .. } => {
+                //     continue;
+                // }
+                russh::ChannelMsg::Failure => {
+                    if !got_data {
+                        return Err(crate::Error::DeviceSessionClosed);
+                    }
                 }
+                // NOTE: I have to think about explicitly handling these cases, because with what I saw, not really needed here
+                // russh::ChannelMsg::ExitStatus { .. } => {
+                //     return Err(crate::Error::DeviceSessionClosed);
+                // }
+                // russh::ChannelMsg::ExitSignal { .. } => {
+                //     return Err(crate::Error::DeviceSessionClosed);
+                // }
                 _ => {}
             }
         }
-
-        Ok(output)
+        Ok(output.len() - start_len)
     }
 
-    async fn read_with_timeout(&mut self, read_timeout: Duration) -> Result<String, crate::Error> {
-        let mut output = String::new();
+    async fn read_with_timeout(
+        &mut self,
+        read_timeout: Duration,
+        output: &mut String,
+    ) -> Result<usize, crate::Error> {
         let deadline = tokio::time::Instant::now() + read_timeout;
+        let start_len = output.len();
 
         while tokio::time::Instant::now() < deadline {
             match tokio::time::timeout(Duration::from_millis(100), self.channel.wait()).await {
@@ -543,25 +590,31 @@ impl DeviceSession {
             }
         }
 
-        Ok(output)
+        Ok(output.len() - start_len)
     }
 
     fn clean_output(&self, raw: &str, command: &str) -> String {
-        let mut output = raw.to_string();
+        let mut start_index = 0;
+        let mut end_index = raw.len();
 
-        if let Some(pos) = output.find('\n') {
-            let first_line = &output[..pos];
-            if first_line.contains(command) || first_line.trim() == command.trim() {
-                output = output[pos + 1..].to_string();
+        if let Some(pos) = raw.find('\n') {
+            let first_line = &raw[..pos];
+            if first_line.contains(command) {
+                start_index = pos + 1;
             }
         }
 
-        if let Some(mat) = self.prompt_regex.find(&output) {
-            output = output[..mat.start()].to_string();
+        let current_slice = &raw[start_index..];
+        if let Some(mat) = self.prompt_regex.find(current_slice) {
+            end_index = start_index + mat.start();
         }
 
-        output = output.replace('\r', "");
-        output.trim().to_string()
+        if start_index >= end_index {
+            return String::new();
+        }
+
+        let content = &raw[start_index..end_index];
+        content.replace('\r', "").trim().to_string()
     }
 
     fn check_for_errors(&self, output: &str) -> (bool, Option<String>) {
@@ -573,21 +626,177 @@ impl DeviceSession {
         (false, None)
     }
 
-    /// Close the session gracefully.
-    pub async fn close(self) -> Result<(), crate::Error> {
-        self.channel.eof().await?;
-        self.channel.close().await.map_err(crate::Error::SshError)?;
-        self.client.disconnect().await?;
+    async fn check_enable_mode(&mut self) -> bool {
+        if let Some(regex) = self.enable_regex.clone() {
+            if let Ok(result) = self.send_command("").await {
+                return regex.is_match(&result.raw_output);
+            }
+        }
+        false
+    }
+
+    /// Try to enter enable mode. If your user is privileged enough, you will most likely get into this mode once the initial
+    /// session is formed. Still useful/needed.
+    pub async fn enter_enable_mode(
+        &mut self,
+        command: &str,
+        enable_secret: Option<&str>,
+    ) -> Result<(), crate::Error> {
+        if self.check_enable_mode().await {
+            if let Some(ref regex) = self.enable_regex {
+                self.prompt_regex = regex.clone();
+            }
+            return Ok(());
+        }
+
+        self.send_line(command).await?;
+
+        let output = self.wait_for_prompt_or_pattern().await?;
+
+        if let Some(ref pwd_regex) = self.enable_password_regex {
+            if pwd_regex.is_match(&output) {
+                if let Some(secret) = enable_secret {
+                    self.send_line(secret).await?;
+                    let _ = self.wait_for_prompt().await?;
+
+                    if self.check_enable_mode().await {
+                        if let Some(ref regex) = self.enable_regex {
+                            self.prompt_regex = regex.clone();
+                        }
+                        return Ok(());
+                    } else {
+                        return Err(crate::Error::EnableModePasswordFailed);
+                    }
+                } else {
+                    return Err(crate::Error::EnableModePasswordFailed);
+                }
+            }
+        }
+
+        if self.check_enable_mode().await {
+            if let Some(ref regex) = self.enable_regex {
+                self.prompt_regex = regex.clone();
+            }
+            return Ok(());
+        }
+
+        Err(crate::Error::EnableModeCommandFailed)
+    }
+
+    pub async fn exit_from_enable_mode(&mut self, command: &str) -> Result<(), crate::Error> {
+        if !self.check_enable_mode().await {
+            self.prompt_regex = self.base_prompt_regex.clone();
+            return Ok(());
+        }
+
+        self.send_line(command).await?;
+
+        let base_regex = self.base_prompt_regex.clone();
+        self.wait_for_regex(&base_regex).await?;
+
+        self.prompt_regex = base_regex;
+
+        if self.check_enable_mode().await {
+            return Err(crate::Error::EnableCommandDidntExit);
+        }
+
         Ok(())
     }
-}
 
-impl std::fmt::Debug for DeviceSession {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DeviceSession")
-            .field("config", &self.config)
-            .field("client", &self.client)
-            .finish()
+    /// Wait for either the standard prompt or a specific pattern (mostly for password prompt like on enable mode, but not restricted)
+    async fn wait_for_prompt_or_pattern(&mut self) -> Result<String, crate::Error> {
+        let result = timeout(self.config.command_timeout, async {
+            let mut accumulated = std::mem::take(&mut self.buffer);
+
+            loop {
+                self.read_chunk(&mut accumulated).await?;
+
+                if self.prompt_regex.is_match(&accumulated) {
+                    return Ok(accumulated);
+                }
+
+                if let Some(ref pwd_regex) = self.enable_password_regex {
+                    if pwd_regex.is_match(&accumulated) {
+                        return Ok(accumulated);
+                    }
+                }
+            }
+        })
+        .await
+        .map_err(|_| crate::Error::DeviceTimeout)?;
+
+        result
+    }
+
+    async fn check_config_mode(&mut self) -> bool {
+        if let Some(regex) = self.config_regex.clone() {
+            if let Ok(result) = self.send_command("").await {
+                return regex.is_match(&result.raw_output);
+            }
+        }
+        false
+    }
+    pub async fn enable_config_mode(&mut self, command: &str) -> Result<(), crate::Error> {
+        if self.check_config_mode().await {
+            // Ensure regex is updated
+            if let Some(ref regex) = self.config_regex {
+                self.prompt_regex = regex.clone();
+            }
+            return Ok(());
+        }
+
+        self.send_line(command).await?;
+
+        if let Some(ref regex) = self.config_regex {
+            // We cannot use wait_for_prompt() here because self.prompt_regex is currently enable/# and we expect (config)#
+            let regex_clone = regex.clone();
+            self.wait_for_regex(&regex_clone).await?;
+
+            self.prompt_regex = regex_clone;
+        } else {
+            self.wait_for_prompt().await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn exit_config_mode(&mut self, command: &str) -> Result<(), crate::Error> {
+        if !self.check_config_mode().await {
+            if let Some(ref regex) = self.enable_regex {
+                self.prompt_regex = regex.clone();
+            } else {
+                self.prompt_regex = self.base_prompt_regex.clone();
+            }
+            return Ok(());
+        }
+
+        self.send_line(command).await?;
+
+        let target_regex = if let Some(ref regex) = self.enable_regex {
+            regex.clone()
+        } else {
+            self.base_prompt_regex.clone()
+        };
+
+        self.wait_for_regex(&target_regex).await?;
+
+        self.prompt_regex = target_regex;
+
+        if self.check_config_mode().await {
+            return Err(crate::Error::ConfigCommandDidntExit);
+        }
+
+        Ok(())
+    }
+
+    /// Close resources gracefully. This requires an explicit call. It would be ideal to handle it by implementing
+    /// the drop trait but that is not quite hard considering that drop is not async. It possible but don't really
+    /// want to spend that much time engineering a workaround solution that includes tokio
+    pub async fn close(&mut self) -> Result<(), crate::Error> {
+        let _ = self.channel.eof().await;
+        let _ = self.channel.close().await;
+        self.client.disconnect().await?;
+        Ok(())
     }
 }
 
@@ -599,21 +808,7 @@ pub struct DeviceSessionBuilder {
     auth: Option<AuthMethod>,
     server_check: ServerCheckMethod,
     vendor: DeviceVendor,
-    // config_overrides: DeviceConfigOverrides,
 }
-
-//NOTE: Will think about this again, because it feels a bit to unnecessary atm
-
-// #[derive(Debug, Clone, Default)]
-// struct DeviceConfigOverrides {
-//     command_timeout: Option<Duration>,
-//     term_width: Option<u32>,
-//     term_height: Option<u32>,
-//     read_delay: Option<Duration>,
-//     additional_error_patterns: Vec<String>,
-//     additional_disable_paging: Vec<String>,
-//     ssh_algorithms: Option<SshAlgorithms>,
-// }
 
 impl DeviceSessionBuilder {
     pub fn new() -> Self {
@@ -624,7 +819,6 @@ impl DeviceSessionBuilder {
             auth: None,
             server_check: ServerCheckMethod::NoCheck,
             vendor: DeviceVendor::default(),
-            // config_overrides: DeviceConfigOverrides::default(),
         }
     }
 
@@ -662,47 +856,6 @@ impl DeviceSessionBuilder {
         self.vendor = vendor.into();
         self
     }
-    //NOTE: Will think about this again, because it feels a bit to unnecessary atm
-
-    // pub fn command_timeout(mut self, timeout: Duration) -> Self {
-    //     self.config_overrides.command_timeout = Some(timeout);
-    //     self
-    // }
-
-    // pub fn terminal_size(mut self, width: u32, height: u32) -> Self {
-    //     self.config_overrides.term_width = Some(width);
-    //     self.config_overrides.term_height = Some(height);
-    //     self
-    // }
-
-    // pub fn read_delay(mut self, delay: Duration) -> Self {
-    //     self.config_overrides.read_delay = Some(delay);
-    //     self
-    // }
-
-    // pub fn add_error_pattern<S: Into<String>>(mut self, pattern: S) -> Self {
-    //     self.config_overrides
-    //         .additional_error_patterns
-    //         .push(pattern.into());
-    //     self
-    // }
-
-    // pub fn add_disable_paging<S: Into<String>>(mut self, command: S) -> Self {
-    //     self.config_overrides
-    //         .additional_disable_paging
-    //         .push(command.into());
-    //     self
-    // }
-
-    // /// Set SSH algorithm preferences.
-    // pub fn ssh_algorithms(mut self, algorithms: SshAlgorithms) -> Self {
-    //     self.config_overrides.ssh_algorithms = Some(algorithms);
-    //     self
-    // }
-
-    // pub fn with_legacy_algorithms(self) -> Self {
-    //     self.ssh_algorithms(SshAlgorithms::legacy())
-    // }
 
     pub async fn connect(self) -> Result<DeviceSession, crate::Error> {
         let address = self
@@ -721,32 +874,7 @@ impl DeviceSessionBuilder {
             format!("{}:{}", address, self.port)
         };
 
-        let mut config = self.vendor.into_config();
-
-        //NOTE: Will think about this again, because it feels a bit to unnecessary atm
-
-        // if let Some(timeout) = self.config_overrides.command_timeout {
-        //     config.command_timeout = timeout;
-        // }
-        // if let Some(width) = self.config_overrides.term_width {
-        //     config.term_width = width;
-        // }
-        // if let Some(height) = self.config_overrides.term_height {
-        //     config.term_height = height;
-        // }
-        // if let Some(delay) = self.config_overrides.read_delay {
-        //     config.read_delay = delay;
-        // }
-        // if let Some(algorithms) = self.config_overrides.ssh_algorithms {
-        //     config.ssh_algorithms = Some(algorithms);
-        // }
-        // config
-        //     .error_patterns
-        //     .extend(self.config_overrides.additional_error_patterns);
-        // config
-        //     .disable_paging_commands
-        //     .extend(self.config_overrides.additional_disable_paging);
-
+        let config = self.vendor.into_config();
         let ssh_config = config.to_ssh_config();
 
         let client = Client::connect_with_config(
