@@ -60,4 +60,6 @@ pub enum Error {
     EnableModeCommandFailed,
     #[error("EnableCommandDidntExit")]
     EnableCommandDidntExit,
+    #[error("ConfigCommandDidntExit")]
+    ConfigCommandDidntExit,
 }

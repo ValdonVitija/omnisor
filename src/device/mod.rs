@@ -197,6 +197,8 @@ pub struct DeviceConfig {
     pub enable_mode_prompt_pattern: Option<String>,
     /// Optional regex pattern to detect the enable mode password if prompted
     pub enable_mode_password_prompt_pattern: Option<String>,
+    /// Optional regex pattern to detect configuration mode
+    pub config_mode_prompt_pattern: Option<String>,
     /// Timeout for waiting for prompt after sending a command
     pub command_timeout: Duration,
     /// Optional patterns that indicate an error occurred
@@ -224,6 +226,9 @@ impl Default for DeviceConfig {
             prompt_pattern: r"(?:^|[\r\n])[\w\-\.]+[#>$]\s*$".to_string(),
             enable_mode_prompt_pattern: r"(?:^|[\r\n])[\w\-\.]+[#]\s*$".to_string().into(),
             enable_mode_password_prompt_pattern: r"(?i)password:".to_string().into(),
+            config_mode_prompt_pattern: r"(?:^|[\r\n])[\w\-\.:\/]+\(config[^\)]*\)#\s*$"
+                .to_string()
+                .into(),
             command_timeout: Duration::from_secs(30),
             error_patterns: vec![],
             term_type: "xterm".to_string(),
@@ -316,7 +321,7 @@ pub struct DeviceCommandResult {
     pub output: String,
     /// Whether an error pattern was detected in the output.
     pub has_error: bool,
-    /// The matched error pattern, if any.  The number of error messages
+    /// The matched error pattern, if any. The number of error messages
     /// is quite hard to be determined as of now by me, but I want something like this to be a valid
     /// parameter when getting the command result.
     pub error_match: Option<String>,
@@ -328,10 +333,14 @@ pub struct DeviceSession {
     client: Client,
     channel: russh::Channel<russh::client::Msg>,
     config: Arc<DeviceConfig>,
+    /// This stores the prompt we are currently interested in. That can change between user/enable/config modes
     prompt_regex: Regex,
+    /// The initial/default prompt pattern. When we enter a device, this should be generic to match either user or enable mode.
+    base_prompt_regex: Regex,
     error_regexes: Vec<Regex>,
     enable_regex: Option<Regex>,
     enable_password_regex: Option<Regex>,
+    config_regex: Option<Regex>,
     buffer: String,
 }
 
@@ -384,8 +393,10 @@ impl DeviceSession {
 
         channel.request_shell(true).await?;
 
-        let prompt_regex = Regex::new(&config.prompt_pattern)
+        let base_prompt_regex = Regex::new(&config.prompt_pattern)
             .map_err(|e| crate::Error::InvalidPromptPattern(e.to_string()))?;
+
+        let prompt_regex = base_prompt_regex.clone();
 
         let error_regexes: Vec<Regex> = config
             .error_patterns
@@ -406,6 +417,12 @@ impl DeviceSession {
             None
         };
 
+        let config_regex = if let Some(ref p) = config.config_mode_prompt_pattern {
+            Some(Regex::new(p).map_err(|e| crate::Error::InvalidPromptPattern(e.to_string()))?)
+        } else {
+            None
+        };
+
         let config_arc = Arc::new(config);
 
         let mut session = Self {
@@ -413,9 +430,11 @@ impl DeviceSession {
             channel,
             config: config_arc.clone(),
             prompt_regex,
+            base_prompt_regex,
             error_regexes,
             enable_regex,
             enable_password_regex,
+            config_regex,
             buffer: String::with_capacity(4096),
         };
 
@@ -473,6 +492,24 @@ impl DeviceSession {
         let regex =
             Regex::new(pattern).map_err(|e| crate::Error::InvalidPromptPattern(e.to_string()))?;
 
+        self.wait_for_regex(&regex).await
+    }
+
+    pub fn config(&self) -> &DeviceConfig {
+        &self.config
+    }
+
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
+    async fn wait_for_prompt(&mut self) -> Result<String, crate::Error> {
+        let regex: Regex = self.prompt_regex.clone();
+        self.wait_for_regex(&regex).await
+    }
+    /// Helper for basically any type of regex. I want to have a function that can be exposed and used by the potential crate user
+    /// and not just by the rest of the functions here internally.
+    async fn wait_for_regex(&mut self, regex: &Regex) -> Result<String, crate::Error> {
         let result = timeout(self.config.command_timeout, async {
             let mut accumulated = std::mem::take(&mut self.buffer);
             loop {
@@ -485,33 +522,6 @@ impl DeviceSession {
         })
         .await
         .map_err(|_| crate::Error::DeviceTimeout)?;
-
-        result
-    }
-
-    pub fn config(&self) -> &DeviceConfig {
-        &self.config
-    }
-
-    pub fn client(&self) -> &Client {
-        &self.client
-    }
-
-    async fn wait_for_prompt(&mut self) -> Result<String, crate::Error> {
-        let result = timeout(self.config.command_timeout, async {
-            let mut accumulated = std::mem::take(&mut self.buffer);
-
-            loop {
-                self.read_chunk(&mut accumulated).await?;
-
-                if self.prompt_regex.is_match(&accumulated) {
-                    return Ok(accumulated);
-                }
-            }
-        })
-        .await
-        .map_err(|_| crate::Error::DeviceTimeout)?;
-
         result
     }
 
@@ -633,6 +643,9 @@ impl DeviceSession {
         enable_secret: Option<&str>,
     ) -> Result<(), crate::Error> {
         if self.check_enable_mode().await {
+            if let Some(ref regex) = self.enable_regex {
+                self.prompt_regex = regex.clone();
+            }
             return Ok(());
         }
 
@@ -647,6 +660,9 @@ impl DeviceSession {
                     let _ = self.wait_for_prompt().await?;
 
                     if self.check_enable_mode().await {
+                        if let Some(ref regex) = self.enable_regex {
+                            self.prompt_regex = regex.clone();
+                        }
                         return Ok(());
                     } else {
                         return Err(crate::Error::EnableModePasswordFailed);
@@ -658,6 +674,9 @@ impl DeviceSession {
         }
 
         if self.check_enable_mode().await {
+            if let Some(ref regex) = self.enable_regex {
+                self.prompt_regex = regex.clone();
+            }
             return Ok(());
         }
 
@@ -666,14 +685,16 @@ impl DeviceSession {
 
     pub async fn exit_from_enable_mode(&mut self, command: &str) -> Result<(), crate::Error> {
         if !self.check_enable_mode().await {
+            self.prompt_regex = self.base_prompt_regex.clone();
             return Ok(());
         }
 
-        let result = self.send_command(command).await?;
+        self.send_line(command).await?;
 
-        if result.has_error {
-            return Err(crate::Error::EnableCommandDidntExit);
-        }
+        let base_regex = self.base_prompt_regex.clone();
+        self.wait_for_regex(&base_regex).await?;
+
+        self.prompt_regex = base_regex;
 
         if self.check_enable_mode().await {
             return Err(crate::Error::EnableCommandDidntExit);
@@ -706,6 +727,68 @@ impl DeviceSession {
 
         result
     }
+
+    async fn check_config_mode(&mut self) -> bool {
+        if let Some(regex) = self.config_regex.clone() {
+            if let Ok(result) = self.send_command("").await {
+                return regex.is_match(&result.raw_output);
+            }
+        }
+        false
+    }
+    pub async fn enable_config_mode(&mut self, command: &str) -> Result<(), crate::Error> {
+        if self.check_config_mode().await {
+            // Ensure regex is updated
+            if let Some(ref regex) = self.config_regex {
+                self.prompt_regex = regex.clone();
+            }
+            return Ok(());
+        }
+
+        self.send_line(command).await?;
+
+        if let Some(ref regex) = self.config_regex {
+            // We cannot use wait_for_prompt() here because self.prompt_regex is currently enable/# and we expect (config)#
+            let regex_clone = regex.clone();
+            self.wait_for_regex(&regex_clone).await?;
+
+            self.prompt_regex = regex_clone;
+        } else {
+            self.wait_for_prompt().await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn exit_config_mode(&mut self, command: &str) -> Result<(), crate::Error> {
+        if !self.check_config_mode().await {
+            if let Some(ref regex) = self.enable_regex {
+                self.prompt_regex = regex.clone();
+            } else {
+                self.prompt_regex = self.base_prompt_regex.clone();
+            }
+            return Ok(());
+        }
+
+        self.send_line(command).await?;
+
+        let target_regex = if let Some(ref regex) = self.enable_regex {
+            regex.clone()
+        } else {
+            self.base_prompt_regex.clone()
+        };
+
+        self.wait_for_regex(&target_regex).await?;
+
+        self.prompt_regex = target_regex;
+
+        if self.check_config_mode().await {
+            return Err(crate::Error::ConfigCommandDidntExit);
+        }
+
+        Ok(())
+    }
+
     /// Close resources gracefully. This requires an explicit call. It would be ideal to handle it by implementing
     /// the drop trait but that is not quite hard considering that drop is not async. It possible but don't really
     /// want to spend that much time engineering a workaround solution that includes tokio
