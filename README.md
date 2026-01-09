@@ -29,7 +29,7 @@ Add Omnisor and Tokio to your Cargo.toml:
 ```toml
 [dependencies]
 tokio = "1"
-omnisor = "0.1.2"
+omnisor = "0.1.3"
 ```
 
 Or manually add both of them through cargo 

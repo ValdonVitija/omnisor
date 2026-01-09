@@ -241,6 +241,10 @@ impl DeviceConfig {
         self.enable_mode_password_prompt_pattern = Some(pattern.into());
         self
     }
+    pub fn add_config_mode_prompt_pattern(mut self, pattern: impl Into<String>) -> Self {
+        self.config_mode_prompt_pattern = Some(pattern.into());
+        self
+    }
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.command_timeout = timeout;
         self
@@ -745,7 +749,9 @@ impl DeviceSession {
 
         Ok(())
     }
-
+    /// You can use this method to exit from a higher level config mode to a lower one or from config to enable mode.
+    /// In the future I want to have a single exit_mode method that somehow tracks the current mode, whatever that is, and moves
+    /// to the previous one by just calling it. That makes it easier, but I'm not willing to do that rn so sorry :/
     pub async fn exit_config_mode(&mut self, command: &str) -> Result<(), crate::Error> {
         if !self.check_config_mode().await {
             if let Some(ref regex) = self.enable_regex {
@@ -758,19 +764,34 @@ impl DeviceSession {
 
         self.send_line(command).await?;
 
-        let target_regex = if let Some(ref regex) = self.enable_regex {
-            regex.clone()
-        } else {
-            self.base_prompt_regex.clone()
-        };
+        // Okay so the idea is that we exit by one level, so lets say from config-if to config.
+        // If the user then wants to go from config to enable, they can just call exit_config_mode again.
 
-        self.wait_for_regex(&target_regex).await?;
+        let _ = timeout(self.config.command_timeout, async {
+            let mut accumulated = std::mem::take(&mut self.buffer);
+            loop {
+                self.read_chunk(&mut accumulated).await?;
 
-        self.prompt_regex = target_regex;
+                if let Some(ref enable_regex) = self.enable_regex {
+                    if enable_regex.is_match(&accumulated) {
+                        self.prompt_regex = enable_regex.clone();
+                        return Ok::<(), crate::Error>(());
+                    }
+                } else if self.base_prompt_regex.is_match(&accumulated) {
+                    self.prompt_regex = self.base_prompt_regex.clone();
+                    return Ok(());
+                }
 
-        if self.check_config_mode().await {
-            return Err(crate::Error::ConfigCommandDidntExit);
-        }
+                if let Some(ref config_regex) = self.config_regex {
+                    if config_regex.is_match(&accumulated) {
+                        self.prompt_regex = config_regex.clone();
+                        return Ok(());
+                    }
+                }
+            }
+        })
+        .await
+        .map_err(|_| crate::Error::DeviceTimeout)??;
 
         Ok(())
     }
