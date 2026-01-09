@@ -28,14 +28,14 @@ Add Omnisor and Tokio to your Cargo.toml:
 
 ```toml
 [dependencies]
-# tokio = { version = "1", features = ["full"] }
-omnisor = "0.1.0"
+tokio = "1"
+omnisor = "0.1.2"
 ```
 
 Or manually add both of them through cargo 
 ```bash
-cargo add tokio --features full
 cargo add omnisor
+cargo add tokio
 ```
 
 ## Usage
