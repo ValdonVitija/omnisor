@@ -1,19 +1,11 @@
 [package]
 name = "omnisor"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
 license-file = "LICENSE"
 readme = "README.md"
-description = "A vendor-agnostic CLI Swiss Army knife for network troubleshooting, offering extraction, aggregation, and querying of device data, while also offering a clean, fully capable api to handle ssh connections towards network devices."
-keywords = [
-    "async",
-    "asynchronous",
-    "ssh",
-    "ssh2",
-    "ssh-client",
-    "high level",
-    "networking",
-]
+description = "Omnisor is an asynchronous high-level SSH client library for Rust, with specialized support for network devices."
+keywords = ["async", "ssh-client", "high-level", "networking"]
 repository = "https://github.com/ValdonVitija/omnisor"
 categories = ["network-programming"]
 authors = ["Valdon Vitija <valdonvitijaa@gmail.com>"]

@@ -74,7 +74,6 @@ impl CiscoVariant {
     }
 
     fn wlc_config() -> DeviceConfig {
-        // WLC has a different prompt style: (Cisco Controller) >
         DeviceConfig::with_prompt(r"(?:^|[\r\n])\([^\)]+\)\s*[#>]\s*$")
             .add_disable_paging_command("config paging disable")
             .add_error_pattern(r"Incorrect usage")

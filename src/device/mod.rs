@@ -28,9 +28,7 @@ pub enum DeviceVendor {
     /// Juniper devices (Junos)
     Juniper(JuniperVariant),
     /// Arista EOS devices
-    AristaEos,
-    /// Generic Linux/Unix systems
-    Linux,
+    // AristaEos,
     /// Custom configuration
     Custom(DeviceConfig),
 }
@@ -40,8 +38,7 @@ impl DeviceVendor {
         match self {
             Self::Cisco(variant) => variant.into_config(),
             Self::Juniper(variant) => variant.into_config(),
-            Self::AristaEos => Self::arista_eos_config(),
-            Self::Linux => Self::linux_config(),
+            // Self::AristaEos => Self::arista_eos_config(),
             Self::Custom(config) => config,
         }
     }
@@ -52,26 +49,13 @@ impl DeviceVendor {
 
     // NOTE: Not sure if this if correct, but tried to do it with what I found about EOS, because
     // I don't have a lab device to test against.
-    fn arista_eos_config() -> DeviceConfig {
-        DeviceConfig::with_prompt(r"[\r\n][\w\-\.]+[#>]\s*$")
-            .add_disable_paging_command("terminal length 0")
-            .add_disable_paging_command("terminal width 32767")
-            .add_error_pattern(r"% Invalid")
-            .add_error_pattern(r"% Incomplete")
-    }
-
-    fn linux_config() -> DeviceConfig {
-        DeviceConfig::with_prompt(r"[\r\n][\w\-\.\@\:~]+[\$#]\s*$")
-            .add_error_pattern(r"command not found")
-            .add_error_pattern(r"No such file or directory")
-            .add_error_pattern(r"Permission denied")
-    }
-}
-
-impl Default for DeviceVendor {
-    fn default() -> Self {
-        Self::Linux
-    }
+    // fn arista_eos_config() -> DeviceConfig {
+    //     DeviceConfig::with_prompt(r"[\r\n][\w\-\.]+[#>]\s*$")
+    //         .add_disable_paging_command("terminal length 0")
+    //         .add_disable_paging_command("terminal width 32767")
+    //         .add_error_pattern(r"% Invalid")
+    //         .add_error_pattern(r"% Incomplete")
+    // }
 }
 
 impl From<DeviceConfig> for DeviceVendor {
@@ -741,7 +725,6 @@ impl DeviceSession {
     }
     pub async fn enter_config_mode(&mut self, command: &str) -> Result<(), crate::Error> {
         if self.check_config_mode().await {
-            // Ensure regex is updated
             if let Some(ref regex) = self.config_regex {
                 self.prompt_regex = regex.clone();
             }
@@ -810,7 +793,7 @@ pub struct DeviceSessionBuilder {
     username: Option<String>,
     auth: Option<AuthMethod>,
     server_check: ServerCheckMethod,
-    vendor: DeviceVendor,
+    vendor: Option<DeviceVendor>,
 }
 
 impl DeviceSessionBuilder {
@@ -821,7 +804,7 @@ impl DeviceSessionBuilder {
             username: None,
             auth: None,
             server_check: ServerCheckMethod::NoCheck,
-            vendor: DeviceVendor::default(),
+            vendor: None,
         }
     }
 
@@ -856,7 +839,7 @@ impl DeviceSessionBuilder {
     }
 
     pub fn vendor<V: Into<DeviceVendor>>(mut self, vendor: V) -> Self {
-        self.vendor = vendor.into();
+        self.vendor = Some(vendor.into());
         self
     }
 
@@ -877,7 +860,12 @@ impl DeviceSessionBuilder {
             format!("{}:{}", address, self.port)
         };
 
-        let config = self.vendor.into_config();
+        let config = if let Some(v) = self.vendor {
+            v.into_config()
+        } else {
+            DeviceConfig::default()
+        };
+
         let ssh_config = config.to_ssh_config();
 
         let client = Client::connect_with_config(

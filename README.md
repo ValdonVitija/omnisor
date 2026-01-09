@@ -6,11 +6,11 @@
 
 # About
 
-> [!WARNING]
-> **This library is not stable yet!**
-
 Omnisor is an asynchronous high-level SSH client library for Rust, with specialized support for network devices.
 Built on top of [async-ssh2-tokio]( https://github.com/Miyoshi-Ryota/async-ssh2-tokio) & [russh](https://github.com/warp-tech/russh)
+
+> [!WARNING]
+> **This library is not stable yet!**
 
 > [!NOTE]
 > **I will try to keep omnisor in sync with async-ssh2-tokio. Will also try to add potential features and improvements library wide**
@@ -18,7 +18,7 @@ Built on top of [async-ssh2-tokio]( https://github.com/Miyoshi-Ryota/async-ssh2-
 ## Features
 
 * **Standard SSH Client** - Connect, authenticate, and execute commands on network devices.
-* **Vendor Presets** - Built-in support for Cisco, Juniper and more soon enough
+* **Vendor Support** - Built-in support for Cisco, Juniper and more soon enough
 * **Legacy Device Support** - Configurable SSH algorithms for older network equipment
 
 
@@ -28,21 +28,21 @@ Add Omnisor and Tokio to your Cargo.toml:
 
 ```toml
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-omnisor = "0.1"
+tokio = "1"
+omnisor = "0.1.2"
 ```
 
 Or manually add both of them through cargo 
 ```bash
-cargo add tokio --features full
 cargo add omnisor
+cargo add tokio
 ```
 
 ## Usage
 
 ### Quick Start - Standard SSH
 
-For simple command execution on Linux/Unix servers, you can either use omnisor or async-ssh2-tokio. I will try to keep omnisor in sync with async-ssh2-tokio by add potential features and improvements not only on the networking side of omnisor.
+For simple command execution on Linux/Unix servers, you can either use omnisor or async-ssh2-tokio.
 
 ### Quick Start - Network Devices
 
@@ -76,8 +76,7 @@ async fn main() -> Result<(), omnisor::Error> {
 For more control over device connections:
 
 ```rust
-use omnisor::{DeviceSession, CiscoVariant, AuthMethod};
-use std::time::Duration;
+use omnisor::{CiscoVariant, DeviceSession};
 
 #[tokio::main]
 async fn main() -> Result<(), omnisor::Error> {
@@ -85,8 +84,8 @@ async fn main() -> Result<(), omnisor::Error> {
         .address("192.168.1.1")
         .port(22)
         .username("admin")
-        .vendor(CiscoVariant::Ios)
-        .command_timeout(Duration::from_secs(60))
+        .password("password")
+        .vendor(CiscoVariant::IosLegacy)
         .connect()
         .await?;
 
@@ -159,31 +158,36 @@ async fn main() -> Result<(), omnisor::Error> {
 
 Omnisor offers ready to use methods to change between router modes (user/enable/config)
 > [!IMPORTANT]
-> **Don't expect complete support for every device vendor and version. This has been massively influenced by cisco devices.**
+> **Don't expect complete support for every device vendor and version as of now. This has been massively influenced by cisco devices.**
 
 ```rust
+use omnisor::{CiscoVariant, DeviceSession};
+
 #[tokio::main]
 async fn main() -> Result<(), omnisor::Error> {
     let mut session = DeviceSession::connect(
         ("192.168.142.130", 22),
         "cisco",
-        "StrongPassword123",
+        "cisco",
         CiscoVariant::IosLegacy,
     )
     .await?;
 
-    //Be careful with the chronology of steps for now. 
+    //Be careful with the chronology of steps for now.
     //In the future I plan to offer the possibility
     //of going into any mode from every other mode
     //without having to follow the normal chronology of steps.
-    let _ = session.enter_enable_mode("enable").await?;
+    let _ = session.enter_enable_mode("enable", Some("cisco")).await?;
     let _ = session.enter_config_mode("config t").await?;
     let _ = session.exit_config_mode("exit").await?;
-    let _ = session.exit_enable_mode("disable").await?;
+    let _ = session.exit_from_enable_mode("disable").await?;
+
+    session.close().await?;
+    Ok(())
 }
 ```
 
 # Contribution
 
 To contribute to this project all you need is to enjoy working on open source projects and absolutely nothing else. Also be respectful!
-So... fork the repo, fix bugs, potentially optimize, improve docs. Whatever you think this project needs and all will be carefully reviewd/considerd
+So... fork the repo, fix bugs, potentially optimize, improve docs. Whatever you think this project needs and all will be carefully reviewed/considered
