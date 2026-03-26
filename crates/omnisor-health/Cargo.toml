@@ -1,0 +1,14 @@
+[package]
+name = "omnisor-health"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+readme = "README.md"
+description = "Reusable health and troubleshooting domain logic for Omnisor."
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+omnisor = { path = "../omnisor" }
+regex.workspace = true
+tokio.workspace = true
