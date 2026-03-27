@@ -1,0 +1,25 @@
+[package]
+name = "omnisor"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+readme = "README.md"
+description = "Omnisor is an asynchronous high-level SSH client library for network devices."
+keywords = ["async", "ssh-client", "high-level", "networking"]
+repository.workspace = true
+categories = ["network-programming"]
+authors.workspace = true
+
+[features]
+openssl = []
+
+[dependencies]
+russh.workspace = true
+log.workspace = true
+russh-sftp.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+dotenv.workspace = true

@@ -1,28 +1,26 @@
-[package]
-name = "omnisor"
+[workspace]
+members = [
+    "crates/omnisor",
+    "crates/omnisor-health",
+    "crates/omnisor-feature-device-health",
+    "apps/omnisor-app",
+]
+resolver = "3"
+
+[workspace.package]
 version = "0.1.3"
 edition = "2024"
 license-file = "LICENSE"
 readme = "README.md"
-description = "Omnisor is an asynchronous high-level SSH client library for Rust, with specialized support for network devices."
-keywords = ["async", "ssh-client", "high-level", "networking"]
 repository = "https://github.com/ValdonVitija/omnisor"
-categories = ["network-programming"]
 authors = ["Valdon Vitija <valdonvitijaa@gmail.com>"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[features]
-openssl = []
-
-[dependencies]
-russh = "0.55.0"
+[workspace.dependencies]
 log = "0.4"
+ratatui = "0.30.0"
+regex = "1.12.2"
+russh = "0.55.0"
 russh-sftp = "2.1.1"
 thiserror = "2.0.17"
 tokio = { version = "1.45.1", features = ["fs"] }
-regex = "1.12.2"
-ratatui = "0.30.0"
-
-[dev-dependencies]
 dotenv = "0.15.0"

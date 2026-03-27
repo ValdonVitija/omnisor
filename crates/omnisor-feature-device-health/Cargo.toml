@@ -1,0 +1,15 @@
+[package]
+name = "omnisor-feature-device-health"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+readme = "README.md"
+description = "Device health ratatui feature for Omnisor."
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+omnisor = { path = "../omnisor" }
+omnisor-health = { path = "../omnisor-health" }
+ratatui.workspace = true
+tokio.workspace = true

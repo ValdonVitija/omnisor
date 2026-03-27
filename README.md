@@ -2,12 +2,18 @@
     <img alt="Omnisor Logo" src="logo.png">
 </p>
 
-<h1 align="center">Omnisor - High Level Rust SSH Client For Network Devices</h1>
+<h1 align="center">Omnisor - Network Device SSH Library and Terminal App</h1>
 
 # About
 
-Omnisor is an asynchronous high-level SSH client library for Rust, with specialized support for network devices.
-Built on top of [async-ssh2-tokio]( https://github.com/Miyoshi-Ryota/async-ssh2-tokio) & [russh](https://github.com/warp-tech/russh)
+Omnisor is now organized as a workspace with separate packages for:
+
+- `crates/omnisor`: the core asynchronous SSH/device library
+- `crates/omnisor-health`: reusable health and troubleshooting domain logic
+- `apps/omnisor-app`: the ratatui terminal application
+
+The core library remains an asynchronous high-level SSH client for Rust with specialized support for network devices.
+It is built on top of [async-ssh2-tokio]( https://github.com/Miyoshi-Ryota/async-ssh2-tokio) and [russh](https://github.com/warp-tech/russh).
 
 > [!WARNING]
 > **This library is not stable yet!**
@@ -23,6 +29,8 @@ Built on top of [async-ssh2-tokio]( https://github.com/Miyoshi-Ryota/async-ssh2-
 
 
 ## Install
+
+For the library crate, use `omnisor`.
 
 Add Omnisor and Tokio to your Cargo.toml:
 

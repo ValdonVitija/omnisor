@@ -1,0 +1,13 @@
+[package]
+name = "omnisor-app"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+readme = "README.md"
+description = "Ratatui application for Omnisor network troubleshooting workflows."
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+omnisor-feature-device-health = { path = "../../crates/omnisor-feature-device-health" }
+ratatui.workspace = true
