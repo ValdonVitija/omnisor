@@ -1,63 +1,37 @@
 <p align="center">
-    <img alt="Omnisor Logo" src="logo.png">
+    <img alt="Omnisor TUI App" src="apps/omnisor-app/omnisor-tui-app.png">
 </p>
 
-<h1 align="center">Omnisor - Network Device SSH Library and Terminal App</h1>
+<h1 align="center">Omnisor</h1>
+<p align="center">Network-device SSH library/crate & Terminal UI App</p>
 
-# About
+## What Omnisor Is
 
-Omnisor is now organized as a workspace with separate packages for:
+Omnisor is a Rust workspace for working with network devices in two ways:
 
-- `crates/omnisor`: the core asynchronous SSH/device library
-- `crates/omnisor-health`: reusable health and troubleshooting domain logic
-- `apps/omnisor-app`: the ratatui terminal application
+- as a library through `omnisor`, with vendor-aware SSH and interactive device-session APIs
+- as a terminal ui app through `omnisor-app`, with troubleshooting workflows built on top of the same core primitives
 
-The core library remains an asynchronous high-level SSH client for Rust with specialized support for network devices.
-It is built on top of [async-ssh2-tokio]( https://github.com/Miyoshi-Ryota/async-ssh2-tokio) and [russh](https://github.com/warp-tech/russh).
+Today, the app is real and usable, with Device Health as the first implemented app/feature. The repo is structured so the core SSH/device logic, reusable troubleshooting logic, and terminal UX can evolve together without being collapsed into one crate.
 
 > [!WARNING]
-> **This library is not stable yet!**
+> Omnisor is still evolving. APIs, app workflows, and package boundaries may continue to change while the project matures.
 
-> [!NOTE]
-> **I will try to keep omnisor in sync with async-ssh2-tokio. Will also try to add potential features and improvements library wide**
+## Quick Start
 
-## Features
+### Library Quick Start
 
-* **Standard SSH Client** - Connect, authenticate, and execute commands on network devices.
-* **Vendor Support** - Built-in support for Cisco, Juniper and more soon enough
-* **Legacy Device Support** - Configurable SSH algorithms for older network equipment
+Add `omnisor` and `tokio`:
 
-
-## Install
-
-For the library crate, use `omnisor`.
-
-Add Omnisor and Tokio to your Cargo.toml:
-
-```toml
-[dependencies]
-tokio = "1"
-omnisor = "0.1.3"
-```
-
-Or manually add both of them through cargo 
 ```bash
 cargo add omnisor
 cargo add tokio
 ```
 
-## Usage
-
-### Quick Start - Standard SSH
-
-For simple command execution on Linux/Unix servers, you can either use omnisor or async-ssh2-tokio.
-
-### Quick Start - Network Devices
-
-For interactive sessions with network devices (routers, switches, firewalls):
+Then connect to a device and execute commands:
 
 ```rust
-use omnisor::{DeviceSession, CiscoVariant};
+use omnisor::{CiscoVariant, DeviceSession};
 
 #[tokio::main]
 async fn main() -> Result<(), omnisor::Error> {
@@ -66,12 +40,10 @@ async fn main() -> Result<(), omnisor::Error> {
         "admin",
         "password",
         CiscoVariant::Ios,
-    ).await?;
+    )
+    .await?;
 
     let result = session.send_command("show version").await?;
-    println!("{}", result.output);
-
-    let result = session.send_command("show ip route").await?;
     println!("{}", result.output);
 
     session.close().await?;
@@ -79,9 +51,40 @@ async fn main() -> Result<(), omnisor::Error> {
 }
 ```
 
-### Device Session Builder
+For more library examples and device-session details, see [`crates/omnisor/README.md`](crates/omnisor/README.md).
 
-For more control over device connections:
+### App Quick Start
+
+Run the terminal app from the workspace root:
+
+```bash
+cargo run -p omnisor-app
+```
+
+The app opens into the Omnisor launcher and currently includes the Device Health workflow. That flow owns its own connection setup and can validate a device session before collecting a health snapshot.
+
+For app-specific notes, see [`apps/omnisor-app/README.md`](apps/omnisor-app/README.md).
+
+## Workspace Overview
+
+Omnisor is organized as a workspace with a small set of focused packages:
+
+- [`crates/omnisor/README.md`](crates/omnisor/README.md): the core async SSH and network-device session library
+- [`crates/omnisor-health/README.md`](crates/omnisor-health/README.md): reusable health and troubleshooting domain logic
+- [`crates/omnisor-feature-device-health/README.md`](crates/omnisor-feature-device-health/README.md): the Device Health feature flow used by the app
+- [`apps/omnisor-app/README.md`](apps/omnisor-app/README.md): the ratatui terminal application and launcher shell
+
+## Current Capabilities
+
+- Vendor-aware SSH/device sessions for network devices through the `omnisor` crate
+- Built-in support for supported vendor/model profiles such as Cisco and Juniper variants
+- Interactive command execution and mode transitions for network-device operations
+- Reusable health/troubleshooting logic that can be consumed outside the UI
+- A ratatui terminal app with a launcher and Device Health as the current live workflow
+
+## Library Example
+
+For slightly more control over the connection, use the builder API:
 
 ```rust
 use omnisor::{CiscoVariant, DeviceSession};
@@ -97,7 +100,7 @@ async fn main() -> Result<(), omnisor::Error> {
         .connect()
         .await?;
 
-    let result = session.send_command("show version").await?;
+    let result = session.send_command("show ip interface brief").await?;
     println!("{}", result.output);
 
     session.close().await?;
@@ -105,97 +108,28 @@ async fn main() -> Result<(), omnisor::Error> {
 }
 ```
 
-### Legacy Device Support
+Deeper examples, legacy-device notes, custom SSH algorithm configuration, and mode-handling examples live in [`crates/omnisor/README.md`](crates/omnisor/README.md).
 
-For older devices requiring legacy SSH algorithms (for example older Cisco IOS):
+## App Today
 
-```rust
-use omnisor::{DeviceSession, CiscoVariant};
+`omnisor-app` is the terminal-UI entrypoint for operator workflows.
 
-#[tokio::main]
-async fn main() -> Result<(), omnisor::Error> {
-    // Use IosLegacy variant for older Cisco devices
-    let mut session = DeviceSession::connect(
-        ("192.168.1.1", 22),
-        "admin",
-        "password",
-        CiscoVariant::IosLegacy,
-    ).await?;
+- It starts at a launcher rather than dropping directly into a single task.
+- Device Health is the currently implemented workflow.
+- The app is designed to expand into more troubleshooting and network-operations flows over time.
 
-    let result = session.send_command("show version").await?;
-    println!("{}", result.output);
+The app is built on the core `omnisor` device APIs and the reusable `omnisor-health` domain layer, so the same underlying capabilities can be used programmatically or through the UI.
 
-    session.close().await?;
-    Ok(())
-}
-```
+## Status
 
-### Custom SSH Algorithms
+Omnisor is in active development.
 
-For control over SSH algorithms you can specify whatever you like that is supported under https://github.com/Eugeny/russh
+- The core library is usable today for device-session work.
+- The terminal app exists today and is growing workflow by workflow.
+- Supported vendors, models, and troubleshooting features are expanding incrementally rather than all at once.
 
-```rust
-use omnisor::{DeviceSession, CiscoVariant, SshAlgorithms, kex, cipher, mac};
+## Contributing
 
-#[tokio::main]
-async fn main() -> Result<(), omnisor::Error> {
-    let mut session = DeviceSession::builder()
-        .address("192.168.1.1")
-        .username("admin")
-        .password("password")
-        .vendor(CiscoVariant::Ios)
-        .ssh_algorithms(
-            SshAlgorithms::new()
-                .kex(vec![kex::DH_G14_SHA1, kex::DH_G1_SHA1])
-                .cipher(vec![cipher::AES_256_CBC, cipher::AES_128_CBC])
-                .mac(vec![mac::HMAC_SHA1])
-        )
-        .connect()
-        .await?;
+Contributions are welcome across the library, app, docs, and overall workspace structure.
 
-    let result = session.send_command("show version").await?;
-    println!("{}", result.output);
-
-    session.close().await?;
-    Ok(())
-}
-```
-
-### Enable and Config Mode Support
-
-
-Omnisor offers ready to use methods to change between router modes (user/enable/config)
-> [!IMPORTANT]
-> **Don't expect complete support for every device vendor and version as of now. This has been massively influenced by cisco devices.**
-
-```rust
-use omnisor::{CiscoVariant, DeviceSession};
-
-#[tokio::main]
-async fn main() -> Result<(), omnisor::Error> {
-    let mut session = DeviceSession::connect(
-        ("192.168.142.130", 22),
-        "cisco",
-        "cisco",
-        CiscoVariant::IosLegacy,
-    )
-    .await?;
-
-    //Be careful with the chronology of steps for now.
-    //In the future I plan to offer the possibility
-    //of going into any mode from every other mode
-    //without having to follow the normal chronology of steps.
-    let _ = session.enter_enable_mode("enable", Some("cisco")).await?;
-    let _ = session.enter_config_mode("config t").await?;
-    let _ = session.exit_config_mode("exit").await?;
-    let _ = session.exit_from_enable_mode("disable").await?;
-
-    session.close().await?;
-    Ok(())
-}
-```
-
-# Contribution
-
-To contribute to this project all you need is to enjoy working on open source projects and absolutely nothing else. Also be respectful!
-So... fork the repo, fix bugs, potentially optimize, improve docs. Whatever you think this project needs and all will be carefully reviewed/considered
+If you want to help, open an issue, propose a change, or submit a PR with improvements to code, documentation, UX, or examples.
