@@ -30,7 +30,7 @@ pub enum DeviceVendor {
     /// Arista EOS devices
     // AristaEos,
     /// Custom configuration
-    Custom(DeviceConfig),
+    Custom(Box<DeviceConfig>),
 }
 
 impl DeviceVendor {
@@ -39,7 +39,7 @@ impl DeviceVendor {
             Self::Cisco(variant) => variant.into_config(),
             Self::Juniper(variant) => variant.into_config(),
             // Self::AristaEos => Self::arista_eos_config(),
-            Self::Custom(config) => config,
+            Self::Custom(config) => *config,
         }
     }
 
@@ -60,7 +60,7 @@ impl DeviceVendor {
 
 impl From<DeviceConfig> for DeviceVendor {
     fn from(config: DeviceConfig) -> Self {
-        Self::Custom(config)
+        Self::Custom(Box::new(config))
     }
 }
 
@@ -498,7 +498,7 @@ impl DeviceSession {
     /// Helper for basically any type of regex. I want to have a function that can be exposed and used by the potential crate user
     /// and not just by the rest of the functions here internally.
     async fn wait_for_regex(&mut self, regex: &Regex) -> Result<String, crate::Error> {
-        let result = timeout(self.config.command_timeout, async {
+        timeout(self.config.command_timeout, async {
             let mut accumulated = std::mem::take(&mut self.buffer);
             loop {
                 self.read_chunk(&mut accumulated).await?;
@@ -509,8 +509,7 @@ impl DeviceSession {
             }
         })
         .await
-        .map_err(|_| crate::Error::DeviceTimeout)?;
-        result
+        .map_err(|_| crate::Error::DeviceTimeout)?
     }
 
     /// Reads incoming data and appends it to the provided buffer.
@@ -615,10 +614,10 @@ impl DeviceSession {
     }
 
     async fn check_enable_mode(&mut self) -> bool {
-        if let Some(regex) = self.enable_regex.clone() {
-            if let Ok(result) = self.send_command("").await {
-                return regex.is_match(&result.raw_output);
-            }
+        if let Some(regex) = self.enable_regex.clone()
+            && let Ok(result) = self.send_command("").await
+        {
+            return regex.is_match(&result.raw_output);
         }
         false
     }
@@ -641,23 +640,23 @@ impl DeviceSession {
 
         let output = self.wait_for_prompt_or_pattern().await?;
 
-        if let Some(ref pwd_regex) = self.enable_password_regex {
-            if pwd_regex.is_match(&output) {
-                if let Some(secret) = enable_secret {
-                    self.send_line(secret).await?;
-                    let _ = self.wait_for_prompt().await?;
+        if let Some(ref pwd_regex) = self.enable_password_regex
+            && pwd_regex.is_match(&output)
+        {
+            if let Some(secret) = enable_secret {
+                self.send_line(secret).await?;
+                let _ = self.wait_for_prompt().await?;
 
-                    if self.check_enable_mode().await {
-                        if let Some(ref regex) = self.enable_regex {
-                            self.prompt_regex = regex.clone();
-                        }
-                        return Ok(());
-                    } else {
-                        return Err(crate::Error::EnableModePasswordFailed);
+                if self.check_enable_mode().await {
+                    if let Some(ref regex) = self.enable_regex {
+                        self.prompt_regex = regex.clone();
                     }
+                    return Ok(());
                 } else {
                     return Err(crate::Error::EnableModePasswordFailed);
                 }
+            } else {
+                return Err(crate::Error::EnableModePasswordFailed);
             }
         }
 
@@ -696,7 +695,7 @@ impl DeviceSession {
     /// to achieve the same thing in enter_enable_mode.
     /// NOTE: Needs refactoring, but not rn.
     async fn wait_for_prompt_or_pattern(&mut self) -> Result<String, crate::Error> {
-        let result = timeout(self.config.command_timeout, async {
+        timeout(self.config.command_timeout, async {
             let mut accumulated = std::mem::take(&mut self.buffer);
 
             loop {
@@ -706,24 +705,22 @@ impl DeviceSession {
                     return Ok(accumulated);
                 }
 
-                if let Some(ref pwd_regex) = self.enable_password_regex {
-                    if pwd_regex.is_match(&accumulated) {
-                        return Ok(accumulated);
-                    }
+                if let Some(ref pwd_regex) = self.enable_password_regex
+                    && pwd_regex.is_match(&accumulated)
+                {
+                    return Ok(accumulated);
                 }
             }
         })
         .await
-        .map_err(|_| crate::Error::DeviceTimeout)?;
-
-        result
+        .map_err(|_| crate::Error::DeviceTimeout)?
     }
 
     async fn check_config_mode(&mut self) -> bool {
-        if let Some(regex) = self.config_regex.clone() {
-            if let Ok(result) = self.send_command("").await {
-                return regex.is_match(&result.raw_output);
-            }
+        if let Some(regex) = self.config_regex.clone()
+            && let Ok(result) = self.send_command("").await
+        {
+            return regex.is_match(&result.raw_output);
         }
         false
     }
@@ -767,7 +764,7 @@ impl DeviceSession {
         // Okay so the idea is that we exit by one level, so lets say from config-if to config.
         // If the user then wants to go from config to enable, they can just call exit_config_mode again.
 
-        let _ = timeout(self.config.command_timeout, async {
+        timeout(self.config.command_timeout, async {
             let mut accumulated = std::mem::take(&mut self.buffer);
             loop {
                 self.read_chunk(&mut accumulated).await?;
@@ -782,11 +779,11 @@ impl DeviceSession {
                     return Ok(());
                 }
 
-                if let Some(ref config_regex) = self.config_regex {
-                    if config_regex.is_match(&accumulated) {
-                        self.prompt_regex = config_regex.clone();
-                        return Ok(());
-                    }
+                if let Some(ref config_regex) = self.config_regex
+                    && config_regex.is_match(&accumulated)
+                {
+                    self.prompt_regex = config_regex.clone();
+                    return Ok(());
                 }
             }
         })

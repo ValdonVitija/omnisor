@@ -26,7 +26,7 @@ const FEATURES: &[FeatureRegistration] = &[
     FeatureRegistration {
         id: FeatureId::DeviceHealth,
         title: "Device Health",
-        description: "Live Cisco health snapshot with setup, checks, and drill-down sections.",
+        description: "Live device health snapshot with setup, checks, and drill-down sections.",
         badge: FeatureBadge::Live,
         enabled: true,
     },
@@ -318,7 +318,7 @@ fn render_launcher(f: &mut Frame, area: Rect, app: &App) {
     let centered = centered_rect(area, launcher_width, launcher_height);
     let card = Block::default()
         .borders(Borders::ALL)
-        .title("Omnisor Launcher")
+        .title("Omnisor - Networking Operations Toolkit")
         .border_style(Style::default().fg(Color::DarkGray));
     let inner = card.inner(centered);
     f.render_widget(card, centered);
@@ -348,11 +348,11 @@ fn render_launcher(f: &mut Frame, area: Rect, app: &App) {
 
     let subtitle = Paragraph::new(vec![
         Line::from(Span::styled(
-            "Choose a workflow",
+            "Omnisor apps/features",
             Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
-            "Feature crates plug into this launcher. Disabled entries stay visible but inactive.",
+            "Choose an app/feature to launch",
             Style::default().fg(Color::Gray),
         )),
     ])

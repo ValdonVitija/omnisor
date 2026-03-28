@@ -1,8 +1,11 @@
-use omnisor::{CiscoVariant, DeviceSession};
+use omnisor::{
+    CiscoVariant, DeviceSession,
+    device::DeviceVendor,
+};
 use omnisor_health::{
     DeviceHealthSnapshot, HealthConnectionConfig, InterfaceDistribution, InterfaceHealth,
-    InterfaceIssue, ReachabilityStatus, SectionStatus, collect_cisco_device_health,
-    findings_status, status_from_percent,
+    InterfaceIssue, ReachabilityStatus, SectionStatus, collect_device_health, findings_status,
+    status_from_percent,
 };
 use ratatui::{
     Frame,
@@ -34,6 +37,10 @@ const VENDOR_OPTIONS: &[CiscoVariant] = &[
     CiscoVariant::IosLegacy,
 ];
 
+fn vendor_option(option: CiscoVariant) -> DeviceVendor {
+    DeviceVendor::Cisco(option)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeatureSignal {
     None,
@@ -47,7 +54,7 @@ struct CliConfig {
     port: u16,
     username: String,
     password: String,
-    vendor: CiscoVariant,
+    vendor: DeviceVendor,
 }
 
 impl From<&CliConfig> for HealthConnectionConfig {
@@ -57,7 +64,7 @@ impl From<&CliConfig> for HealthConnectionConfig {
             port: value.port,
             username: value.username.clone(),
             password: value.password.clone(),
-            vendor: value.vendor,
+            vendor: value.vendor.clone(),
         }
     }
 }
@@ -134,8 +141,17 @@ impl ConnectionForm {
         self.selected_field = (self.selected_field + 1) % ConnectionField::all().len();
     }
 
-    fn current_vendor(&self) -> CiscoVariant {
-        VENDOR_OPTIONS[self.vendor_index]
+    fn current_vendor(&self) -> DeviceVendor {
+        vendor_option(VENDOR_OPTIONS[self.vendor_index])
+    }
+
+    fn current_vendor_label(&self) -> String {
+        match self.current_vendor() {
+            DeviceVendor::Cisco(variant) => variant.to_string(),
+            DeviceVendor::Juniper(variant) => variant.to_string(),
+            DeviceVendor::Custom(_) => "Custom Device Profile".to_string(),
+            _ => "Device Vendor".to_string(),
+        }
     }
 
     fn cycle_vendor_prev(&mut self) {
@@ -162,7 +178,7 @@ impl ConnectionForm {
                     "*".repeat(self.password.len())
                 }
             }
-            ConnectionField::Vendor => self.current_vendor().to_string(),
+            ConnectionField::Vendor => self.current_vendor_label(),
             ConnectionField::Connect => "Validate connection and continue".to_string(),
         }
     }
@@ -358,7 +374,12 @@ impl DeviceHealthFeature {
                 snapshot.device.management_address,
                 snapshot.collected_at.elapsed().as_secs()
             ),
-            (_, Some(config)) => format!("{} @ {}:{}", config.vendor, config.address, config.port),
+            (_, Some(config)) => format!(
+                "{} @ {}:{}",
+                vendor_label(&config.vendor),
+                config.address,
+                config.port
+            ),
             _ => "Feature-local device session setup".to_string(),
         }
     }
@@ -471,7 +492,7 @@ impl DeviceHealthFeature {
 
         let (tx, rx) = mpsc::channel();
         self.health_state = LoadState::Loading;
-        self.status = "Collecting Cisco device health...".to_string();
+        self.status = "Collecting device health...".to_string();
 
         thread::spawn(move || {
             let result = collect_snapshot_thread(config);
@@ -560,9 +581,20 @@ impl DeviceHealthFeature {
             .constraints([Constraint::Length(44), Constraint::Min(0)])
             .split(area);
 
-        let items: Vec<ListItem> = ConnectionField::all()
+        let connection_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(7),
+                Constraint::Length(1),
+                Constraint::Length(5),
+                Constraint::Min(0),
+            ])
+            .split(layout[0]);
+
+        let fields: Vec<ListItem> = ConnectionField::all()
             .iter()
             .enumerate()
+            .filter(|(_, field)| **field != ConnectionField::Connect)
             .map(|(idx, field)| {
                 let text = format!(
                     "{:<10} {}",
@@ -579,11 +611,36 @@ impl DeviceHealthFeature {
             .collect();
 
         let form =
-            List::new(items).block(Block::default().borders(Borders::ALL).title("Connection"));
-        f.render_widget(form, layout[0]);
+            List::new(fields)
+                .block(Block::default().borders(Borders::ALL).title("Connection Parameters"));
+        f.render_widget(form, connection_layout[0]);
+
+        let connect_selected = self.connection_form.selected() == ConnectionField::Connect;
+        let connect_style = connect_button_style(connect_selected);
+        let connect_block = Block::default()
+            .borders(Borders::ALL)
+            // .title("Action")
+            .style(connect_style);
+        let connect_label = if connect_selected {
+            "[ Connect ]"
+        } else {
+            "  Connect  "
+        };
+        let connect_text = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(connect_label, connect_style)),
+            // Line::from(Span::styled(
+                // "Validate connection and continue",
+                // connect_style,
+            // )),
+        ])
+        .block(connect_block)
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true });
+        f.render_widget(connect_text, connection_layout[2]);
 
         let details = Paragraph::new(
-            "Device Health owns its own setup flow.\n\nFill in the device address, port, username, password, and Cisco platform. Then select Connect to validate the SSH session before collecting a snapshot.\n\nKeys:\n- Up/Down or Tab: move field\n- Left/Right: change vendor\n- Type and Backspace: edit text fields\n- Enter on Connect: validate and continue\n- Esc: return to launcher",
+            "Device Health owns its own setup flow.\n\nFill in the device address, port, username, password, and supported platform. Then use the Connect button to validate the SSH session before collecting a snapshot.\n\nKeys:\n- Up/Down or Tab: move field\n- Left/Right: change vendor\n- Type and Backspace: edit text fields\n- Enter on Connect: validate and continue\n- Esc: return to launcher",
         )
         .block(Block::default().borders(Borders::ALL).title("Instructions"))
         .wrap(Wrap { trim: true });
@@ -661,7 +718,7 @@ fn validate_connection_thread(config: CliConfig) -> ConnectionResult {
             (config.address.as_str(), config.port),
             &config.username,
             &config.password,
-            config.vendor,
+            config.vendor.clone(),
         )
         .await
         .map_err(|err| format!("unable to connect to device: {err}"))?;
@@ -694,7 +751,7 @@ fn collect_snapshot_thread(config: CliConfig) -> RefreshResult {
     };
 
     let health_config = HealthConnectionConfig::from(&config);
-    match runtime.block_on(collect_cisco_device_health(&health_config)) {
+    match runtime.block_on(collect_device_health(&health_config)) {
         Ok(snapshot) => RefreshResult {
             snapshot: Some(snapshot),
             status: "Device health snapshot collected.".to_string(),
@@ -1340,6 +1397,15 @@ fn status_from_option<T>(value: Option<T>) -> SectionStatus {
     }
 }
 
+fn vendor_label(vendor: &DeviceVendor) -> String {
+    match vendor {
+        DeviceVendor::Cisco(variant) => variant.to_string(),
+        DeviceVendor::Juniper(variant) => variant.to_string(),
+        DeviceVendor::Custom(_) => "Custom Device Profile".to_string(),
+        _ => "Device Vendor".to_string(),
+    }
+}
+
 fn interface_distribution_line(distribution: InterfaceDistribution) -> Line<'static> {
     let total_segments = 42usize;
     let up = (distribution.up_ratio * total_segments as f32).round() as usize;
@@ -1431,6 +1497,19 @@ fn selected_style() -> Style {
         .fg(Color::Black)
         .bg(Color::Yellow)
         .add_modifier(Modifier::BOLD)
+}
+
+fn connect_button_style(selected: bool) -> Style {
+    if selected {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    }
 }
 
 #[cfg(test)]
@@ -1533,7 +1612,7 @@ mod tests {
         let built = form.into_config().unwrap();
         assert_eq!(built.address, "192.0.2.10");
         assert_eq!(built.port, 22);
-        assert_eq!(built.vendor, CiscoVariant::NxOs);
+        assert_eq!(built.vendor, DeviceVendor::Cisco(CiscoVariant::NxOs));
     }
 
     #[test]
@@ -1541,6 +1620,47 @@ mod tests {
         let feature = DeviceHealthFeature::new();
         assert!(matches!(feature.screen, Screen::ConnectionSetup));
         assert!(feature.config.is_none());
+    }
+
+    #[test]
+    fn navigation_reaches_connect_selection() {
+        let mut form = ConnectionForm::new();
+        for _ in 0..ConnectionField::all().len() - 1 {
+            form.move_down();
+        }
+        assert_eq!(form.selected(), ConnectionField::Connect);
+    }
+
+    #[test]
+    fn connect_selection_ignores_text_input() {
+        let mut form = ConnectionForm::new();
+        form.address = "192.0.2.10".to_string();
+        form.username = "admin".to_string();
+        form.password = "pass".to_string();
+        form.selected_field = ConnectionField::all().len() - 1;
+
+        form.push_char('x');
+        form.backspace();
+
+        assert_eq!(form.address, "192.0.2.10");
+        assert_eq!(form.username, "admin");
+        assert_eq!(form.password, "pass");
+        assert_eq!(form.selected(), ConnectionField::Connect);
+    }
+
+    #[test]
+    fn enter_on_connect_starts_connection_attempt() {
+        let mut feature = DeviceHealthFeature::new();
+        feature.connection_form.address = "192.0.2.10".to_string();
+        feature.connection_form.username = "admin".to_string();
+        feature.connection_form.password = "pass".to_string();
+        feature.connection_form.selected_field = ConnectionField::all().len() - 1;
+
+        let signal = feature.handle_key(KeyCode::Enter);
+
+        assert_eq!(signal, FeatureSignal::None);
+        assert!(feature.connection_rx.is_some());
+        assert_eq!(feature.connection_state, LoadState::Loading);
     }
 
     #[test]
