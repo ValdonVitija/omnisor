@@ -1,0 +1,71 @@
+# Run from the repository root. Pinned example: otelcol-contrib 0.140.0.
+receivers:
+  prometheus/devices:
+    trim_metric_suffixes: false
+    config:
+      scrape_configs:
+        - job_name: ios-snmp-exporter-demo
+          scrape_interval: 5s
+          metrics_path: /exporters/ios/metrics
+          static_configs:
+            - targets: ['${env:OMNISOR_DEMO_ADDR:-127.0.0.1:9464}']
+              labels:
+                device_id: lab-ios-01
+                adapter_id: prometheus
+        - job_name: structured-exporter-demo
+          scrape_interval: 5s
+          metrics_path: /exporters/openconfig/metrics
+          static_configs:
+            - targets: ['${env:OMNISOR_DEMO_ADDR:-127.0.0.1:9464}']
+              labels:
+                device_id: lab-router-02
+                adapter_id: prometheus
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+    spike_limit_mib: 32
+  batch:
+    timeout: 1s
+    send_batch_size: 256
+    send_batch_max_size: 512
+
+exporters:
+  otlphttp/omnisor:
+    endpoint: http://${env:OMNISOR_DEMO_ADDR:-127.0.0.1:9464}
+    encoding: proto
+    compression: none
+    headers:
+      Authorization: 'Bearer ${env:OMNISOR_DEMO_TOKEN}'
+    sending_queue:
+      enabled: true
+      queue_size: 100
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 60s
+  debug:
+    verbosity: detailed
+
+extensions:
+  file_storage:
+    directory: ${env:OMNISOR_OTEL_STORAGE}
+
+service:
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: ${env:OMNISOR_OTEL_METRICS_PORT:-8889}
+  extensions: [file_storage]
+  pipelines:
+    metrics:
+      receivers: [prometheus/devices]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/omnisor, debug]

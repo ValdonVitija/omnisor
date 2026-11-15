@@ -82,12 +82,11 @@ where
         app.tick();
         terminal.draw(|f| ui(f, &app))?;
 
-        if event::poll(Duration::from_millis(200))? {
-            if let Event::Key(key) = event::read()? {
-                if app.handle_key(key.code) {
-                    return Ok(());
-                }
-            }
+        if event::poll(Duration::from_millis(200))?
+            && let Event::Key(key) = event::read()?
+            && app.handle_key(key.code)
+        {
+            return Ok(());
         }
     }
 }
@@ -236,10 +235,6 @@ impl App {
     }
 
     fn handle_feature_key(&mut self, key: KeyCode) -> bool {
-        if key == KeyCode::Char('q') {
-            return true;
-        }
-
         let Some(feature) = self.active_feature.as_mut() else {
             self.screen = Screen::Launcher;
             return false;
@@ -283,7 +278,11 @@ fn ui(f: &mut Frame, app: &App) {
         .direction(Direction::Vertical)
         .margin(1)
         .constraints([
-            Constraint::Length(if matches!(app.screen, Screen::Feature) { 3 } else { 0 }),
+            Constraint::Length(if matches!(app.screen, Screen::Feature) {
+                3
+            } else {
+                0
+            }),
             Constraint::Min(0),
             Constraint::Length(3),
         ])
@@ -313,8 +312,8 @@ fn render_feature_header(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_launcher(f: &mut Frame, area: Rect, app: &App) {
-    let launcher_width = area.width.saturating_sub(4).min(94).max(40);
-    let launcher_height = area.height.saturating_sub(2).min(28).max(14);
+    let launcher_width = area.width.saturating_sub(4).clamp(40, 94);
+    let launcher_height = area.height.saturating_sub(2).clamp(14, 28);
     let centered = centered_rect(area, launcher_width, launcher_height);
     let card = Block::default()
         .borders(Borders::ALL)
@@ -349,7 +348,9 @@ fn render_launcher(f: &mut Frame, area: Rect, app: &App) {
     let subtitle = Paragraph::new(vec![
         Line::from(Span::styled(
             "Omnisor apps/features",
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
             "Choose an app/feature to launch",
@@ -371,10 +372,7 @@ fn render_launcher(f: &mut Frame, area: Rect, app: &App) {
     let (start, end) = feature_window(app.launcher_selected, FEATURES.len(), visible_count);
     let visible_features = &FEATURES[start..end];
     let content_height = visible_features.len() as u16 * card_height
-        + visible_features
-            .len()
-            .saturating_sub(1) as u16
-            * card_gap;
+        + visible_features.len().saturating_sub(1) as u16 * card_gap;
     let top_padding = list_inner.height.saturating_sub(content_height) / 2;
     let mut y = list_inner.y.saturating_add(top_padding);
 
@@ -445,12 +443,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(footer, area);
 }
 
-fn render_feature_card(
-    f: &mut Frame,
-    area: Rect,
-    feature: &FeatureRegistration,
-    selected: bool,
-) {
+fn render_feature_card(f: &mut Frame, area: Rect, feature: &FeatureRegistration, selected: bool) {
     let border_color = if selected {
         Color::Cyan
     } else {
@@ -515,16 +508,13 @@ fn render_feature_card(
     f.render_widget(content, area);
 }
 
-fn feature_title_line(
-    width: u16,
-    marker: &str,
-    title: &str,
-    badge: &str,
-) -> (String, String) {
+fn feature_title_line(width: u16, marker: &str, title: &str, badge: &str) -> (String, String) {
     let inner_width = width.saturating_sub(2) as usize;
     let left = format!("{marker}{title}");
     let badge_text = format!("[{badge}]");
-    let spacing = inner_width.saturating_sub(left.len() + badge_text.len()).max(1);
+    let spacing = inner_width
+        .saturating_sub(left.len() + badge_text.len())
+        .max(1);
     (format!("{title}{}", " ".repeat(spacing)), badge_text)
 }
 
@@ -611,5 +601,20 @@ mod tests {
         app.handle_key(KeyCode::Esc);
         assert_eq!(app.screen, Screen::Launcher);
         assert!(app.active_feature.is_none());
+    }
+
+    #[test]
+    fn launcher_quits_on_q() {
+        let mut app = App::new();
+        assert!(app.handle_key(KeyCode::Char('q')));
+    }
+
+    #[test]
+    fn feature_setup_receives_q_as_text_input() {
+        let mut app = App::new();
+        app.handle_key(KeyCode::Enter);
+
+        assert!(!app.handle_key(KeyCode::Char('q')));
+        assert_eq!(app.screen, Screen::Feature);
     }
 }

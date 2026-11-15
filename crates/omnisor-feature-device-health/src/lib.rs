@@ -1,11 +1,10 @@
-use omnisor::{
-    CiscoVariant, DeviceSession,
-    device::DeviceVendor,
-};
+mod worker;
+
+use omnisor::{CiscoVariant, ServerCheckMethod, device::DeviceVendor};
 use omnisor_health::{
     DeviceHealthSnapshot, HealthConnectionConfig, InterfaceDistribution, InterfaceHealth,
-    InterfaceIssue, ReachabilityStatus, SectionStatus, collect_device_health, findings_status,
-    status_from_percent,
+    InterfaceIssue, ReachabilityStatus, SectionStatus, findings_status, status_from_percent,
+    supported_health_vendors,
 };
 use ratatui::{
     Frame,
@@ -16,9 +15,15 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Gauge, List, ListItem, Paragraph, Row, Table, Wrap},
 };
 use std::{
-    sync::mpsc::{self, Receiver},
-    thread,
+    fmt,
+    sync::mpsc::TryRecvError,
+    time::{Duration, Instant},
 };
+use worker::{HealthWorker, RefreshResult};
+
+const DEFAULT_REFRESH_SECONDS: u64 = 10;
+const MIN_REFRESH_SECONDS: u64 = 5;
+const MAX_REFRESH_SECONDS: u64 = 3600;
 
 const HEALTH_SECTIONS: &[HealthSection] = &[
     HealthSection::System,
@@ -27,20 +32,6 @@ const HEALTH_SECTIONS: &[HealthSection] = &[
     HealthSection::Findings,
 ];
 
-const VENDOR_OPTIONS: &[CiscoVariant] = &[
-    CiscoVariant::Ios,
-    CiscoVariant::IosXe,
-    CiscoVariant::IosXr,
-    CiscoVariant::NxOs,
-    CiscoVariant::Asa,
-    CiscoVariant::Wlc,
-    CiscoVariant::IosLegacy,
-];
-
-fn vendor_option(option: CiscoVariant) -> DeviceVendor {
-    DeviceVendor::Cisco(option)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeatureSignal {
     None,
@@ -48,13 +39,58 @@ pub enum FeatureSignal {
     ExitApp,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct CliConfig {
     address: String,
     port: u16,
     username: String,
     password: String,
     vendor: DeviceVendor,
+    refresh_interval: Duration,
+    host_trust: HostTrust,
+}
+
+impl fmt::Debug for CliConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CliConfig")
+            .field("address", &self.address)
+            .field("port", &self.port)
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .field("vendor", &self.vendor)
+            .field("refresh_interval", &self.refresh_interval)
+            .field("host_trust", &self.host_trust)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HostTrust {
+    KnownHosts,
+    InsecureLab,
+}
+
+impl HostTrust {
+    fn label(self) -> &'static str {
+        match self {
+            Self::KnownHosts => "Verify known_hosts",
+            Self::InsecureLab => "INSECURE (lab only)",
+        }
+    }
+
+    fn toggle(&mut self) {
+        *self = match self {
+            Self::KnownHosts => Self::InsecureLab,
+            Self::InsecureLab => Self::KnownHosts,
+        };
+    }
+
+    fn server_check(self) -> ServerCheckMethod {
+        match self {
+            Self::KnownHosts => ServerCheckMethod::DefaultKnownHostsFile,
+            Self::InsecureLab => ServerCheckMethod::NoCheck,
+        }
+    }
 }
 
 impl From<&CliConfig> for HealthConnectionConfig {
@@ -76,6 +112,8 @@ enum ConnectionField {
     Username,
     Password,
     Vendor,
+    RefreshInterval,
+    HostTrust,
     Connect,
 }
 
@@ -87,6 +125,8 @@ impl ConnectionField {
             Self::Username => "Username",
             Self::Password => "Password",
             Self::Vendor => "Vendor",
+            Self::RefreshInterval => "Interval",
+            Self::HostTrust => "Host trust",
             Self::Connect => "Connect",
         }
     }
@@ -98,29 +138,39 @@ impl ConnectionField {
             Self::Username,
             Self::Password,
             Self::Vendor,
+            Self::RefreshInterval,
+            Self::HostTrust,
             Self::Connect,
         ]
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct ConnectionForm {
     address: String,
     port: String,
     username: String,
     password: String,
+    refresh_seconds: String,
+    host_trust: HostTrust,
+    vendor_options: Vec<DeviceVendor>,
     vendor_index: usize,
     selected_field: usize,
 }
 
 impl ConnectionForm {
     fn new() -> Self {
+        let vendor_options = supported_health_vendors();
+        let vendor_index = default_vendor_index(&vendor_options);
         Self {
             address: String::new(),
             port: "22".to_string(),
             username: String::new(),
             password: String::new(),
-            vendor_index: default_vendor_index(),
+            refresh_seconds: DEFAULT_REFRESH_SECONDS.to_string(),
+            host_trust: HostTrust::KnownHosts,
+            vendor_options,
+            vendor_index,
             selected_field: 0,
         }
     }
@@ -142,7 +192,7 @@ impl ConnectionForm {
     }
 
     fn current_vendor(&self) -> DeviceVendor {
-        vendor_option(VENDOR_OPTIONS[self.vendor_index])
+        self.vendor_options[self.vendor_index].clone()
     }
 
     fn current_vendor_label(&self) -> String {
@@ -156,14 +206,14 @@ impl ConnectionForm {
 
     fn cycle_vendor_prev(&mut self) {
         if self.vendor_index == 0 {
-            self.vendor_index = VENDOR_OPTIONS.len() - 1;
+            self.vendor_index = self.vendor_options.len() - 1;
         } else {
             self.vendor_index -= 1;
         }
     }
 
     fn cycle_vendor_next(&mut self) {
-        self.vendor_index = (self.vendor_index + 1) % VENDOR_OPTIONS.len();
+        self.vendor_index = (self.vendor_index + 1) % self.vendor_options.len();
     }
 
     fn field_value(&self, field: ConnectionField) -> String {
@@ -179,7 +229,9 @@ impl ConnectionForm {
                 }
             }
             ConnectionField::Vendor => self.current_vendor_label(),
-            ConnectionField::Connect => "Validate connection and continue".to_string(),
+            ConnectionField::RefreshInterval => format!("{} seconds", self.refresh_seconds),
+            ConnectionField::HostTrust => self.host_trust.label().to_string(),
+            ConnectionField::Connect => "Connect and start live health".to_string(),
         }
     }
 
@@ -193,7 +245,12 @@ impl ConnectionForm {
             }
             ConnectionField::Username => self.username.push(c),
             ConnectionField::Password => self.password.push(c),
-            ConnectionField::Vendor | ConnectionField::Connect => {}
+            ConnectionField::RefreshInterval => {
+                if c.is_ascii_digit() {
+                    self.refresh_seconds.push(c);
+                }
+            }
+            ConnectionField::Vendor | ConnectionField::HostTrust | ConnectionField::Connect => {}
         }
     }
 
@@ -211,11 +268,14 @@ impl ConnectionForm {
             ConnectionField::Password => {
                 self.password.pop();
             }
-            ConnectionField::Vendor | ConnectionField::Connect => {}
+            ConnectionField::RefreshInterval => {
+                self.refresh_seconds.pop();
+            }
+            ConnectionField::Vendor | ConnectionField::HostTrust | ConnectionField::Connect => {}
         }
     }
 
-    fn into_config(&self) -> Result<CliConfig, String> {
+    fn to_config(&self) -> Result<CliConfig, String> {
         let address = self.address.trim();
         if address.is_empty() {
             return Err("Device address is required.".to_string());
@@ -235,6 +295,13 @@ impl ConnectionForm {
             .trim()
             .parse()
             .map_err(|_| "Port must be a valid integer.".to_string())?;
+        if port == 0 {
+            return Err("Port must be between 1 and 65535.".to_string());
+        }
+        let refresh_seconds = self.refresh_seconds.parse::<u64>()
+            .ok()
+            .filter(|seconds| (MIN_REFRESH_SECONDS..=MAX_REFRESH_SECONDS).contains(seconds))
+            .ok_or_else(|| format!("Refresh interval must be between {MIN_REFRESH_SECONDS} and {MAX_REFRESH_SECONDS} seconds."))?;
 
         Ok(CliConfig {
             address: address.to_string(),
@@ -242,14 +309,16 @@ impl ConnectionForm {
             username: username.to_string(),
             password: self.password.clone(),
             vendor: self.current_vendor(),
+            refresh_interval: Duration::from_secs(refresh_seconds),
+            host_trust: self.host_trust,
         })
     }
 }
 
-fn default_vendor_index() -> usize {
-    VENDOR_OPTIONS
+fn default_vendor_index(vendors: &[DeviceVendor]) -> usize {
+    vendors
         .iter()
-        .position(|vendor| *vendor == CiscoVariant::IosLegacy)
+        .position(|vendor| *vendor == DeviceVendor::Cisco(CiscoVariant::Ios))
         .unwrap_or(0)
 }
 
@@ -293,16 +362,63 @@ struct GaugeView {
     status: SectionStatus,
 }
 
-#[derive(Debug)]
-struct RefreshResult {
-    snapshot: Option<DeviceHealthSnapshot>,
-    status: String,
-    error: Option<String>,
+#[derive(Clone, Copy)]
+struct SnapshotFreshness {
+    label: &'static str,
+    status: SectionStatus,
 }
 
-enum ConnectionResult {
-    Ready(CliConfig),
-    Failed(String),
+/// Refreshes are spaced from completion, so slow devices never build a backlog.
+struct RefreshSchedule {
+    interval: Duration,
+    paused: bool,
+    in_flight: bool,
+    next_due: Option<Instant>,
+}
+
+impl RefreshSchedule {
+    fn new(interval: Duration) -> Self {
+        Self {
+            interval,
+            paused: false,
+            in_flight: false,
+            next_due: None,
+        }
+    }
+
+    fn started(&mut self) {
+        self.in_flight = true;
+        self.next_due = None;
+    }
+
+    fn completed(&mut self, now: Instant) {
+        self.in_flight = false;
+        self.next_due = Some(now + self.interval);
+    }
+
+    fn due(&self, now: Instant) -> bool {
+        !self.paused && !self.in_flight && self.next_due.is_some_and(|due| now >= due)
+    }
+
+    fn toggle_paused(&mut self, now: Instant) {
+        self.paused = !self.paused;
+        if !self.paused && !self.in_flight {
+            self.next_due = Some(now);
+        }
+    }
+
+    fn label(&self, now: Instant) -> String {
+        if self.paused {
+            "auto-refresh paused".to_string()
+        } else if self.in_flight {
+            "collecting".to_string()
+        } else if let Some(due) = self.next_due {
+            let seconds = due.saturating_duration_since(now).as_secs_f64().ceil() as u64;
+            format!("refresh in {seconds}s")
+        } else {
+            "waiting for first collection".to_string()
+        }
+    }
 }
 
 pub struct DeviceHealthFeature {
@@ -313,9 +429,16 @@ pub struct DeviceHealthFeature {
     connection_state: LoadState,
     health_state: LoadState,
     snapshot: Option<DeviceHealthSnapshot>,
+    last_collection_failed: bool,
     status: String,
-    connection_rx: Option<Receiver<ConnectionResult>>,
-    refresh_rx: Option<Receiver<RefreshResult>>,
+    worker: Option<HealthWorker>,
+    refresh_schedule: RefreshSchedule,
+}
+
+impl Default for DeviceHealthFeature {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DeviceHealthFeature {
@@ -328,22 +451,32 @@ impl DeviceHealthFeature {
             connection_state: LoadState::Idle,
             health_state: LoadState::Idle,
             snapshot: None,
+            last_collection_failed: false,
             status: "Provide a device session for Device Health.".to_string(),
-            connection_rx: None,
-            refresh_rx: None,
+            worker: None,
+            refresh_schedule: RefreshSchedule::new(Duration::from_secs(DEFAULT_REFRESH_SECONDS)),
         }
     }
 
     pub fn tick(&mut self) {
-        self.poll_connection();
-        self.poll_refresh();
+        self.tick_at(Instant::now());
+    }
+
+    fn tick_at(&mut self, now: Instant) {
+        self.poll_refresh(now);
+        if matches!(self.screen, Screen::Dashboard) && self.refresh_schedule.due(now) {
+            self.start_refresh();
+        }
     }
 
     pub fn handle_key(&mut self, key: KeyCode) -> FeatureSignal {
         match self.screen {
             Screen::ConnectionSetup => self.handle_connection_key(key),
             Screen::Dashboard => match key {
-                KeyCode::Char('q') => FeatureSignal::ExitApp,
+                KeyCode::Char('q') => {
+                    self.stop_worker();
+                    FeatureSignal::ExitApp
+                }
                 KeyCode::Up => {
                     self.move_selection_up();
                     FeatureSignal::None
@@ -356,7 +489,19 @@ impl DeviceHealthFeature {
                     self.start_refresh();
                     FeatureSignal::None
                 }
-                KeyCode::Esc | KeyCode::Backspace => FeatureSignal::BackToLauncher,
+                KeyCode::Char('p' | ' ') => {
+                    self.refresh_schedule.toggle_paused(Instant::now());
+                    self.status = if self.refresh_schedule.paused {
+                        "Automatic refresh paused. An active collection may finish; r still refreshes.".to_string()
+                    } else {
+                        "Automatic refresh resumed.".to_string()
+                    };
+                    FeatureSignal::None
+                }
+                KeyCode::Esc | KeyCode::Backspace => {
+                    self.stop_worker();
+                    FeatureSignal::BackToLauncher
+                }
                 _ => FeatureSignal::None,
             },
         }
@@ -369,10 +514,25 @@ impl DeviceHealthFeature {
     pub fn header_subtitle(&self) -> String {
         match (&self.snapshot, &self.config) {
             (Some(snapshot), _) if matches!(self.screen, Screen::Dashboard) => format!(
-                "{} | {} | age {}s",
+                "{} | {} | age {}s | {}{}{}",
                 snapshot.device.hostname,
                 snapshot.device.management_address,
-                snapshot.collected_at.elapsed().as_secs()
+                snapshot.collected_at.elapsed().as_secs(),
+                self.refresh_schedule.label(Instant::now()),
+                if self.snapshot_is_stale_at(Instant::now()) {
+                    " | STALE"
+                } else {
+                    ""
+                },
+                if self
+                    .config
+                    .as_ref()
+                    .is_some_and(|config| config.host_trust == HostTrust::InsecureLab)
+                {
+                    " | INSECURE lab connection"
+                } else {
+                    ""
+                }
             ),
             (_, Some(config)) => format!(
                 "{} @ {}:{}",
@@ -402,9 +562,9 @@ impl DeviceHealthFeature {
 
         let keys = match self.screen {
             Screen::ConnectionSetup => {
-                "Keys: ↑/↓ move, Tab next, ←/→ vendor, type edit, Enter connect, Esc back, q quit"
+                "Keys: ↑/↓ move, Tab next, ←/→ choose, type edit, Enter connect, Esc back"
             }
-            Screen::Dashboard => "Keys: ↑/↓ move, Esc back, r refresh, q quit",
+            Screen::Dashboard => "Keys: ↑/↓ move, p/Space pause, r refresh, Esc back, q quit",
         };
 
         format!("{} | state: {} | {}", self.status, state, keys)
@@ -419,8 +579,10 @@ impl DeviceHealthFeature {
 
     fn handle_connection_key(&mut self, key: KeyCode) -> FeatureSignal {
         match key {
-            KeyCode::Char('q') => FeatureSignal::ExitApp,
-            KeyCode::Esc => FeatureSignal::BackToLauncher,
+            KeyCode::Esc => {
+                self.stop_worker();
+                FeatureSignal::BackToLauncher
+            }
             KeyCode::Up => {
                 self.connection_form.move_up();
                 FeatureSignal::None
@@ -434,14 +596,18 @@ impl DeviceHealthFeature {
                 FeatureSignal::None
             }
             KeyCode::Left => {
-                if self.connection_form.selected() == ConnectionField::Vendor {
-                    self.connection_form.cycle_vendor_prev();
+                match self.connection_form.selected() {
+                    ConnectionField::Vendor => self.connection_form.cycle_vendor_prev(),
+                    ConnectionField::HostTrust => self.connection_form.host_trust.toggle(),
+                    _ => {}
                 }
                 FeatureSignal::None
             }
             KeyCode::Right => {
-                if self.connection_form.selected() == ConnectionField::Vendor {
-                    self.connection_form.cycle_vendor_next();
+                match self.connection_form.selected() {
+                    ConnectionField::Vendor => self.connection_form.cycle_vendor_next(),
+                    ConnectionField::HostTrust => self.connection_form.host_trust.toggle(),
+                    _ => {}
                 }
                 FeatureSignal::None
             }
@@ -485,50 +651,82 @@ impl DeviceHealthFeature {
             return;
         };
 
-        if self.refresh_rx.is_some() {
+        if self.refresh_schedule.in_flight {
             self.status = "Refresh already in progress.".to_string();
             return;
         }
 
-        let (tx, rx) = mpsc::channel();
+        if self.worker.is_none() {
+            match HealthWorker::spawn(
+                HealthConnectionConfig::from(&config),
+                config.host_trust.server_check(),
+            ) {
+                Ok(worker) => self.worker = Some(worker),
+                Err(error) => {
+                    self.apply_refresh_result(RefreshResult::failed(error), Instant::now());
+                    return;
+                }
+            }
+        }
+        if self
+            .worker
+            .as_ref()
+            .expect("worker initialized")
+            .refresh()
+            .is_err()
+        {
+            self.worker_failed(Instant::now());
+            return;
+        }
+        self.refresh_schedule.started();
         self.health_state = LoadState::Loading;
-        self.status = "Collecting device health...".to_string();
-
-        thread::spawn(move || {
-            let result = collect_snapshot_thread(config);
-            let _ = tx.send(result);
-        });
-
-        self.refresh_rx = Some(rx);
+        self.status = "Collecting device health over the live SSH session...".to_string();
     }
 
-    fn poll_refresh(&mut self) {
-        let Some(result) = self.refresh_rx.as_ref().and_then(|rx| rx.try_recv().ok()) else {
+    fn poll_refresh(&mut self, now: Instant) {
+        let Some(worker) = self.worker.as_ref() else {
             return;
         };
+        let result = match worker.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => {
+                self.worker_failed(now);
+                return;
+            }
+        };
+        self.apply_refresh_result(result, now);
+    }
 
-        self.refresh_rx = None;
+    fn apply_refresh_result(&mut self, result: RefreshResult, now: Instant) {
+        self.refresh_schedule.completed(now);
         self.status = result.status;
-
         if let Some(snapshot) = result.snapshot {
+            self.last_collection_failed = false;
             self.snapshot = Some(snapshot);
             self.health_state = LoadState::Ready;
+            self.connection_state = LoadState::Ready;
+            self.screen = Screen::Dashboard;
         } else {
+            self.last_collection_failed = true;
             self.health_state = LoadState::Failed;
+            if matches!(self.screen, Screen::ConnectionSetup) {
+                self.connection_state = LoadState::Failed;
+            }
         }
-
         if let Some(error) = result.error {
             self.status = error;
         }
     }
 
     fn start_connection_attempt(&mut self) {
-        if self.connection_rx.is_some() {
-            self.status = "Connection validation is already in progress.".to_string();
+        if self.refresh_schedule.in_flight {
+            self.status =
+                "Connecting and collecting the first snapshot is already in progress.".to_string();
             return;
         }
 
-        let config = match self.connection_form.into_config() {
+        let config = match self.connection_form.to_config() {
             Ok(config) => config,
             Err(err) => {
                 self.connection_state = LoadState::Failed;
@@ -537,40 +735,58 @@ impl DeviceHealthFeature {
             }
         };
 
-        let (tx, rx) = mpsc::channel();
+        self.stop_worker();
+        self.snapshot = None;
+        self.last_collection_failed = false;
+        self.refresh_schedule = RefreshSchedule::new(config.refresh_interval);
+        self.config = Some(config);
         self.connection_state = LoadState::Loading;
-        self.status = "Validating device connection...".to_string();
-
-        thread::spawn(move || {
-            let result = validate_connection_thread(config);
-            let _ = tx.send(result);
-        });
-
-        self.connection_rx = Some(rx);
+        self.start_refresh();
     }
 
-    fn poll_connection(&mut self) {
-        let Some(result) = self
-            .connection_rx
-            .as_ref()
-            .and_then(|rx| rx.try_recv().ok())
-        else {
-            return;
-        };
+    fn worker_failed(&mut self, now: Instant) {
+        self.stop_worker();
+        self.refresh_schedule.completed(now);
+        self.health_state = LoadState::Failed;
+        self.last_collection_failed = true;
+        if matches!(self.screen, Screen::ConnectionSetup) {
+            self.connection_state = LoadState::Failed;
+            self.status =
+                "Device health worker stopped unexpectedly. Select Connect to retry.".to_string();
+        } else {
+            self.status = "Device health worker stopped unexpectedly. Press r to retry or wait for auto-refresh.".to_string();
+        }
+    }
 
-        self.connection_rx = None;
+    fn stop_worker(&mut self) {
+        self.worker = None;
+        self.refresh_schedule.in_flight = false;
+        self.refresh_schedule.next_due = None;
+    }
 
-        match result {
-            ConnectionResult::Ready(config) => {
-                self.config = Some(config);
-                self.screen = Screen::Dashboard;
-                self.connection_state = LoadState::Ready;
-                self.status = "Connection validated. Collecting device health...".to_string();
-                self.start_refresh();
+    fn snapshot_is_stale_at(&self, now: Instant) -> bool {
+        self.snapshot.as_ref().is_some_and(|snapshot| {
+            self.last_collection_failed
+                || now.saturating_duration_since(snapshot.collected_at)
+                    > self.refresh_schedule.interval.saturating_mul(2)
+        })
+    }
+
+    fn snapshot_freshness(&self, now: Instant) -> SnapshotFreshness {
+        if self.snapshot_is_stale_at(now) {
+            SnapshotFreshness {
+                label: "STALE",
+                status: SectionStatus::Unknown,
             }
-            ConnectionResult::Failed(error) => {
-                self.connection_state = LoadState::Failed;
-                self.status = error;
+        } else if self.refresh_schedule.paused {
+            SnapshotFreshness {
+                label: "Paused",
+                status: SectionStatus::Warning,
+            }
+        } else {
+            SnapshotFreshness {
+                label: "Current",
+                status: SectionStatus::Ok,
             }
         }
     }
@@ -584,7 +800,7 @@ impl DeviceHealthFeature {
         let connection_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(7),
+                Constraint::Length(9),
                 Constraint::Length(1),
                 Constraint::Length(5),
                 Constraint::Min(0),
@@ -610,9 +826,11 @@ impl DeviceHealthFeature {
             })
             .collect();
 
-        let form =
-            List::new(fields)
-                .block(Block::default().borders(Borders::ALL).title("Connection Parameters"));
+        let form = List::new(fields).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Connection Parameters"),
+        );
         f.render_widget(form, connection_layout[0]);
 
         let connect_selected = self.connection_form.selected() == ConnectionField::Connect;
@@ -630,8 +848,8 @@ impl DeviceHealthFeature {
             Line::from(""),
             Line::from(Span::styled(connect_label, connect_style)),
             // Line::from(Span::styled(
-                // "Validate connection and continue",
-                // connect_style,
+            // "Validate connection and continue",
+            // connect_style,
             // )),
         ])
         .block(connect_block)
@@ -640,7 +858,7 @@ impl DeviceHealthFeature {
         f.render_widget(connect_text, connection_layout[2]);
 
         let details = Paragraph::new(
-            "Device Health owns its own setup flow.\n\nFill in the device address, port, username, password, and supported platform. Then use the Connect button to validate the SSH session before collecting a snapshot.\n\nKeys:\n- Up/Down or Tab: move field\n- Left/Right: change vendor\n- Type and Backspace: edit text fields\n- Enter on Connect: validate and continue\n- Esc: return to launcher",
+            "Connect to start periodic health snapshots over one reusable SSH session. The interval is measured after each collection completes; collections never overlap.\n\nHost trust defaults to verifying ~/.ssh/known_hosts. Establish trust with your normal SSH client first. Select INSECURE only for an isolated synthetic lab.\n\nKeys:\n- Up/Down or Tab: move field\n- Left/Right: choose vendor or host trust\n- Type and Backspace: edit fields\n- Enter on Connect: start\n- Esc: cancel and return\n\nOn the dashboard: p or Space pauses automatic refresh; r refreshes immediately, including while paused. A failed refresh retains the last successful snapshot and marks it stale.",
         )
         .block(Block::default().borders(Borders::ALL).title("Instructions"))
         .wrap(Wrap { trim: true });
@@ -677,7 +895,12 @@ impl DeviceHealthFeature {
             List::new(items).block(Block::default().borders(Borders::ALL).title("Sections"));
         f.render_widget(sections, layout[0]);
 
-        let details_block = Block::default().borders(Borders::ALL).title("Details");
+        let details_title = if self.snapshot_is_stale_at(Instant::now()) {
+            "Details — last successful snapshot (STALE)"
+        } else {
+            "Details"
+        };
+        let details_block = Block::default().borders(Borders::ALL).title(details_title);
         let inner = details_block.inner(layout[1]);
         f.render_widget(details_block, layout[1]);
 
@@ -691,77 +914,22 @@ impl DeviceHealthFeature {
                 "No snapshot available yet. Press r to retry once the device health screen is open.",
             ),
             (Some(snapshot), _) => match HEALTH_SECTIONS[self.health_selected] {
-                HealthSection::System => render_system_dashboard(f, inner, snapshot),
+                HealthSection::System => render_system_dashboard(
+                    f,
+                    inner,
+                    snapshot,
+                    self.snapshot_freshness(Instant::now()),
+                ),
                 HealthSection::Interfaces => render_interfaces_dashboard(f, inner, snapshot),
                 HealthSection::Neighbors => render_neighbors_dashboard(f, inner, snapshot),
-                HealthSection::Findings => render_findings_dashboard(f, inner, snapshot),
+                HealthSection::Findings => render_findings_dashboard(
+                    f,
+                    inner,
+                    snapshot,
+                    self.snapshot_freshness(Instant::now()),
+                ),
             },
         }
-    }
-}
-
-fn validate_connection_thread(config: CliConfig) -> ConnectionResult {
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(runtime) => runtime,
-        Err(err) => {
-            return ConnectionResult::Failed(format!(
-                "runtime initialization failed during connection validation: {err}"
-            ));
-        }
-    };
-
-    match runtime.block_on(async {
-        let mut session = DeviceSession::connect(
-            (config.address.as_str(), config.port),
-            &config.username,
-            &config.password,
-            config.vendor.clone(),
-        )
-        .await
-        .map_err(|err| format!("unable to connect to device: {err}"))?;
-
-        session
-            .close()
-            .await
-            .map_err(|err| format!("connected but could not close validation session: {err}"))?;
-
-        Ok::<(), String>(())
-    }) {
-        Ok(()) => ConnectionResult::Ready(config),
-        Err(err) => ConnectionResult::Failed(err),
-    }
-}
-
-fn collect_snapshot_thread(config: CliConfig) -> RefreshResult {
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(runtime) => runtime,
-        Err(err) => {
-            return RefreshResult {
-                snapshot: None,
-                status: "Failed to create async runtime".to_string(),
-                error: Some(format!("runtime initialization failed: {err}")),
-            };
-        }
-    };
-
-    let health_config = HealthConnectionConfig::from(&config);
-    match runtime.block_on(collect_device_health(&health_config)) {
-        Ok(snapshot) => RefreshResult {
-            snapshot: Some(snapshot),
-            status: "Device health snapshot collected.".to_string(),
-            error: None,
-        },
-        Err(err) => RefreshResult {
-            snapshot: None,
-            status: "Device health collection failed.".to_string(),
-            error: Some(err),
-        },
     }
 }
 
@@ -785,7 +953,12 @@ fn render_empty_panel(f: &mut Frame, area: Rect, message: &str) {
     f.render_widget(text, area);
 }
 
-fn render_system_dashboard(f: &mut Frame, area: Rect, snapshot: &DeviceHealthSnapshot) {
+fn render_system_dashboard(
+    f: &mut Frame,
+    area: Rect,
+    snapshot: &DeviceHealthSnapshot,
+    freshness: SnapshotFreshness,
+) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -833,25 +1006,35 @@ fn render_system_dashboard(f: &mut Frame, area: Rect, snapshot: &DeviceHealthSna
         f,
         cards[3],
         "Freshness",
-        &format!("{}s", snapshot.refresh_age_secs()),
-        SectionStatus::Ok,
-        Some("Snapshot age"),
+        &format!("{} · {}s", freshness.label, snapshot.refresh_age_secs()),
+        freshness.status,
+        Some("Last successful snapshot"),
     );
 
     let gauges = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([
+            Constraint::Percentage(33),
+            Constraint::Percentage(34),
+            Constraint::Percentage(33),
+        ])
         .split(layout[1]);
 
     render_metric_gauge(
         f,
         gauges[0],
-        "CPU Usage",
+        "CPU Usage (1m)",
         gauge_view(snapshot.system.cpu_percent, 80.0, 90.0),
     );
     render_metric_gauge(
         f,
         gauges[1],
+        "CPU Usage (5m)",
+        gauge_view(snapshot.system.cpu_five_minute_percent, 80.0, 90.0),
+    );
+    render_metric_gauge(
+        f,
+        gauges[2],
         "Memory Usage",
         gauge_view(snapshot.system.memory_percent, 85.0, 95.0),
     );
@@ -870,8 +1053,14 @@ fn render_system_dashboard(f: &mut Frame, area: Rect, snapshot: &DeviceHealthSna
                 .metadata
                 .iter()
                 .filter(|item| {
-                    ["System CPU", "System Memory", "Version", "Device Identity"]
-                        .contains(&item.name)
+                    [
+                        "System CPU",
+                        "System CPU (5m)",
+                        "System Memory",
+                        "Version",
+                        "Device Identity",
+                    ]
+                    .contains(&item.name)
                 })
                 .count()
         ),
@@ -885,7 +1074,13 @@ fn render_system_dashboard(f: &mut Frame, area: Rect, snapshot: &DeviceHealthSna
         bottom[1],
         "Checks",
         snapshot,
-        &["System CPU", "System Memory", "Version", "Device Identity"],
+        &[
+            "System CPU",
+            "System CPU (5m)",
+            "System Memory",
+            "Version",
+            "Device Identity",
+        ],
     );
 }
 
@@ -947,7 +1142,12 @@ fn render_interfaces_dashboard(f: &mut Frame, area: Rect, snapshot: &DeviceHealt
         Some("Disabled"),
     );
 
-    render_distribution_panel(f, layout[1], snapshot.interface_distribution(), &snapshot.interfaces);
+    render_distribution_panel(
+        f,
+        layout[1],
+        snapshot.interface_distribution(),
+        &snapshot.interfaces,
+    );
     render_issue_table(f, layout[2], &snapshot.interfaces.notable_issues);
     render_metadata_table(f, layout[3], "Checks", snapshot, &["Interfaces"]);
 }
@@ -1029,10 +1229,21 @@ fn render_neighbors_dashboard(f: &mut Frame, area: Rect, snapshot: &DeviceHealth
     );
 
     render_neighbors_table(f, layout[1], snapshot);
-    render_metadata_table(f, layout[2], "Checks", snapshot, &["CDP Neighbors", "LLDP Neighbors"]);
+    render_metadata_table(
+        f,
+        layout[2],
+        "Checks",
+        snapshot,
+        &["CDP Neighbors", "LLDP Neighbors"],
+    );
 }
 
-fn render_findings_dashboard(f: &mut Frame, area: Rect, snapshot: &DeviceHealthSnapshot) {
+fn render_findings_dashboard(
+    f: &mut Frame,
+    area: Rect,
+    snapshot: &DeviceHealthSnapshot,
+    freshness: SnapshotFreshness,
+) {
     let summary = snapshot.finding_summary();
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -1093,9 +1304,9 @@ fn render_findings_dashboard(f: &mut Frame, area: Rect, snapshot: &DeviceHealthS
         f,
         cards[3],
         "Freshness",
-        &format!("{}s", snapshot.refresh_age_secs()),
-        SectionStatus::Ok,
-        Some("Snapshot age"),
+        &format!("{} · {}s", freshness.label, snapshot.refresh_age_secs()),
+        freshness.status,
+        Some("Last successful snapshot"),
     );
 
     render_findings_list(f, layout[1], snapshot);
@@ -1165,7 +1376,10 @@ fn render_distribution_panel(
         Line::from(vec![
             Span::styled(" UP ", Style::default().fg(Color::Black).bg(Color::Green)),
             Span::raw(format!(" {}  ", interfaces.up)),
-            Span::styled(" DOWN ", Style::default().fg(Color::Black).bg(Color::Yellow)),
+            Span::styled(
+                " DOWN ",
+                Style::default().fg(Color::Black).bg(Color::Yellow),
+            ),
             Span::raw(format!(" {}  ", interfaces.down)),
             Span::styled(" ADMIN ", Style::default().fg(Color::Black).bg(Color::Blue)),
             Span::raw(format!(" {}", interfaces.admin_down)),
@@ -1181,7 +1395,11 @@ fn render_distribution_panel(
 fn render_issue_table(f: &mut Frame, area: Rect, issues: &[InterfaceIssue]) {
     if issues.is_empty() {
         let panel = Paragraph::new("No notable interface issues.")
-            .block(Block::default().borders(Borders::ALL).title("Interface Issues"))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Interface Issues"),
+            )
             .wrap(Wrap { trim: true });
         f.render_widget(panel, area);
         return;
@@ -1196,10 +1414,17 @@ fn render_issue_table(f: &mut Frame, area: Rect, issues: &[InterfaceIssue]) {
 
     let table = Table::new(rows, [Constraint::Length(22), Constraint::Min(10)])
         .header(
-            Row::new(vec!["Interface", "State"])
-                .style(Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan)),
+            Row::new(vec!["Interface", "State"]).style(
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .fg(Color::Cyan),
+            ),
         )
-        .block(Block::default().borders(Borders::ALL).title("Interface Issues"))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Interface Issues"),
+        )
         .column_spacing(1);
 
     f.render_widget(table, area);
@@ -1208,18 +1433,22 @@ fn render_issue_table(f: &mut Frame, area: Rect, issues: &[InterfaceIssue]) {
 fn render_neighbors_table(f: &mut Frame, area: Rect, snapshot: &DeviceHealthSnapshot) {
     if snapshot.neighbors.entries.is_empty() {
         let empty = Paragraph::new(vec![
-            Line::from(status_summary_line(
+            status_summary_line(
                 "Neighbors",
                 snapshot.neighbors.status,
                 "No usable CDP/LLDP neighbors",
-            )),
+            ),
             Line::from(" "),
             Line::from(Span::styled(
                 "Discovery checks ran, but the snapshot did not produce any neighbor entries.",
                 Style::default().fg(Color::Gray),
             )),
         ])
-        .block(Block::default().borders(Borders::ALL).title("Neighbor Board"))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Neighbor Board"),
+        )
         .wrap(Wrap { trim: true });
         f.render_widget(empty, area);
         return;
@@ -1258,10 +1487,25 @@ fn render_neighbors_table(f: &mut Frame, area: Rect, snapshot: &DeviceHealthSnap
         ],
     )
     .header(
-        Row::new(vec!["Proto", "Neighbor", "Local", "Remote", "Mgmt IP", "Reachability"])
-            .style(Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan)),
+        Row::new(vec![
+            "Proto",
+            "Neighbor",
+            "Local",
+            "Remote",
+            "Mgmt IP",
+            "Reachability",
+        ])
+        .style(
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Cyan),
+        ),
     )
-    .block(Block::default().borders(Borders::ALL).title("Neighbor Board"))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Neighbor Board"),
+    )
     .column_spacing(1);
 
     f.render_widget(table, area);
@@ -1270,11 +1514,7 @@ fn render_neighbors_table(f: &mut Frame, area: Rect, snapshot: &DeviceHealthSnap
 fn render_findings_list(f: &mut Frame, area: Rect, snapshot: &DeviceHealthSnapshot) {
     if snapshot.findings.is_empty() {
         let panel = Paragraph::new(vec![
-            Line::from(status_summary_line(
-                "Findings",
-                SectionStatus::Ok,
-                "No active findings",
-            )),
+            status_summary_line("Findings", SectionStatus::Ok, "No active findings"),
             Line::from(" "),
             Line::from(Span::styled(
                 "All collected sections are within expected bounds for this snapshot.",
@@ -1291,7 +1531,11 @@ fn render_findings_list(f: &mut Frame, area: Rect, snapshot: &DeviceHealthSnapsh
         .findings
         .iter()
         .map(|finding| {
-            ListItem::new(vec![status_summary_line("", finding.status, &finding.message)])
+            ListItem::new(vec![status_summary_line(
+                "",
+                finding.status,
+                &finding.message,
+            )])
         })
         .collect();
 
@@ -1336,8 +1580,11 @@ fn render_metadata_table(
         ],
     )
     .header(
-        Row::new(vec!["Check", "Status", "Details"])
-            .style(Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan)),
+        Row::new(vec!["Check", "Status", "Details"]).style(
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Cyan),
+        ),
     )
     .block(Block::default().borders(Borders::ALL).title(title))
     .column_spacing(1);
@@ -1366,8 +1613,11 @@ fn render_all_metadata_table(f: &mut Frame, area: Rect, snapshot: &DeviceHealthS
         ],
     )
     .header(
-        Row::new(vec!["Check", "Status", "Details"])
-            .style(Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan)),
+        Row::new(vec!["Check", "Status", "Details"]).style(
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Cyan),
+        ),
     )
     .block(Block::default().borders(Borders::ALL).title("Checks"))
     .column_spacing(1);
@@ -1531,6 +1781,7 @@ mod tests {
             system: SystemHealth {
                 status: SectionStatus::Warning,
                 cpu_percent: Some(82.0),
+                cpu_five_minute_percent: Some(62.0),
                 memory_percent: None,
                 uptime: Some("1 week".to_string()),
             },
@@ -1586,7 +1837,7 @@ mod tests {
                 },
             ],
             metadata: vec![CheckMetadata {
-                name: &"System CPU",
+                name: "System CPU",
                 status: SectionStatus::Warning,
                 details: "CPU one-minute usage 82.0%".to_string(),
             }],
@@ -1597,7 +1848,7 @@ mod tests {
     #[test]
     fn connection_form_validates_required_fields() {
         let form = ConnectionForm::new();
-        let err = form.into_config().unwrap_err();
+        let err = form.to_config().unwrap_err();
         assert!(err.contains("Device address is required"));
     }
 
@@ -1607,12 +1858,40 @@ mod tests {
         form.address = "192.0.2.10".to_string();
         form.username = "admin".to_string();
         form.password = "pass".to_string();
-        form.vendor_index = 3;
+        form.vendor_index = form
+            .vendor_options
+            .iter()
+            .position(|vendor| *vendor == DeviceVendor::Cisco(CiscoVariant::IosXe))
+            .unwrap();
 
-        let built = form.into_config().unwrap();
+        let built = form.to_config().unwrap();
         assert_eq!(built.address, "192.0.2.10");
         assert_eq!(built.port, 22);
-        assert_eq!(built.vendor, DeviceVendor::Cisco(CiscoVariant::NxOs));
+        assert_eq!(built.vendor, DeviceVendor::Cisco(CiscoVariant::IosXe));
+    }
+
+    #[test]
+    fn vendor_picker_cycles_through_supported_health_profiles() {
+        let supported = supported_health_vendors();
+        let mut form = ConnectionForm::new();
+        assert_eq!(
+            form.current_vendor(),
+            DeviceVendor::Cisco(CiscoVariant::Ios)
+        );
+        form.vendor_index = 0;
+
+        let selected: Vec<DeviceVendor> = (0..supported.len())
+            .map(|_| {
+                let vendor = form.current_vendor();
+                form.cycle_vendor_next();
+                vendor
+            })
+            .collect();
+
+        assert_eq!(selected, supported);
+        assert_eq!(form.current_vendor(), supported[0]);
+        form.cycle_vendor_prev();
+        assert_eq!(form.current_vendor(), *supported.last().unwrap());
     }
 
     #[test]
@@ -1620,6 +1899,248 @@ mod tests {
         let feature = DeviceHealthFeature::new();
         assert!(matches!(feature.screen, Screen::ConnectionSetup));
         assert!(feature.config.is_none());
+    }
+
+    fn valid_config() -> CliConfig {
+        let mut form = ConnectionForm::new();
+        form.address = "192.0.2.10".to_string();
+        form.username = "admin".to_string();
+        form.password = "secret-for-test".to_string();
+        form.to_config().unwrap()
+    }
+
+    fn successful_refresh() -> RefreshResult {
+        RefreshResult {
+            snapshot: Some(sample_snapshot()),
+            status: "Snapshot collected.".to_string(),
+            error: None,
+        }
+    }
+
+    #[test]
+    fn host_trust_is_verified_by_default_and_password_debug_is_redacted() {
+        let config = valid_config();
+        assert_eq!(config.host_trust, HostTrust::KnownHosts);
+        assert_eq!(config.refresh_interval, Duration::from_secs(10));
+        assert!(!format!("{config:?}").contains("secret-for-test"));
+
+        let mut feature = DeviceHealthFeature::new();
+        feature.connection_form.selected_field = ConnectionField::all()
+            .iter()
+            .position(|field| *field == ConnectionField::HostTrust)
+            .unwrap();
+        feature.handle_key(KeyCode::Right);
+        assert_eq!(feature.connection_form.host_trust, HostTrust::InsecureLab);
+        feature.handle_key(KeyCode::Left);
+        assert_eq!(feature.connection_form.host_trust, HostTrust::KnownHosts);
+    }
+
+    #[test]
+    fn connection_form_bounds_refresh_interval_and_rejects_port_zero() {
+        let mut form = ConnectionForm::new();
+        form.address = "192.0.2.10".to_string();
+        form.username = "admin".to_string();
+        form.password = "pass".to_string();
+        for seconds in ["", "0", "4", "3601", "invalid"] {
+            form.refresh_seconds = seconds.to_string();
+            assert!(form.to_config().unwrap_err().contains("Refresh interval"));
+        }
+        for seconds in ["5", "10", "3600"] {
+            form.refresh_seconds = seconds.to_string();
+            assert!(form.to_config().is_ok());
+        }
+        form.port = "0".to_string();
+        assert!(
+            form.to_config()
+                .unwrap_err()
+                .contains("Port must be between")
+        );
+    }
+
+    #[test]
+    fn automatic_refresh_waits_for_completion_then_interval_and_never_overlaps() {
+        let mut feature = DeviceHealthFeature::new();
+        let (worker, results, mut commands, _stop) = HealthWorker::test_channel();
+        feature.worker = Some(worker);
+        feature.config = Some(valid_config());
+        feature.screen = Screen::Dashboard;
+        feature.refresh_schedule.started();
+        feature.health_state = LoadState::Loading;
+        let completed_at = Instant::now() + Duration::from_secs(100);
+
+        feature.tick_at(completed_at);
+        assert!(commands.try_recv().is_err());
+        results.send(successful_refresh()).unwrap();
+        feature.tick_at(completed_at);
+        assert_eq!(feature.health_state, LoadState::Ready);
+        feature.tick_at(completed_at + Duration::from_secs(9));
+        assert!(commands.try_recv().is_err());
+        feature.tick_at(completed_at + Duration::from_secs(10));
+        assert!(commands.try_recv().is_ok());
+        assert!(feature.refresh_schedule.in_flight);
+        feature.tick_at(completed_at + Duration::from_secs(100));
+        feature.handle_key(KeyCode::Char('r'));
+        assert!(commands.try_recv().is_err());
+    }
+
+    #[test]
+    fn pause_blocks_automatic_refresh_but_allows_manual_refresh_and_resume() {
+        let mut feature = DeviceHealthFeature::new();
+        let (worker, results, mut commands, _stop) = HealthWorker::test_channel();
+        feature.worker = Some(worker);
+        feature.config = Some(valid_config());
+        feature.apply_refresh_result(successful_refresh(), Instant::now());
+
+        feature.handle_key(KeyCode::Char('p'));
+        assert!(feature.refresh_schedule.paused);
+        feature.tick_at(Instant::now() + Duration::from_secs(100));
+        assert!(commands.try_recv().is_err());
+        feature.handle_key(KeyCode::Char('r'));
+        assert!(commands.try_recv().is_ok());
+        results.send(successful_refresh()).unwrap();
+        feature.tick();
+        assert!(feature.refresh_schedule.paused);
+        feature.tick_at(Instant::now() + Duration::from_secs(100));
+        assert!(commands.try_recv().is_err());
+
+        feature.handle_key(KeyCode::Char(' '));
+        feature.tick();
+        assert!(!feature.refresh_schedule.paused);
+        assert!(commands.try_recv().is_ok());
+    }
+
+    #[test]
+    fn failed_refresh_keeps_last_snapshot_stale_until_fresh_success() {
+        let mut feature = DeviceHealthFeature::new();
+        feature.apply_refresh_result(successful_refresh(), Instant::now());
+        feature.apply_refresh_result(
+            RefreshResult::failed("Connection lost".to_string()),
+            Instant::now(),
+        );
+        assert_eq!(feature.health_state, LoadState::Failed);
+        assert_eq!(
+            feature.snapshot.as_ref().unwrap().device.hostname,
+            "router-1"
+        );
+        assert!(feature.snapshot_is_stale_at(Instant::now()));
+        assert!(feature.header_subtitle().contains("STALE"));
+
+        let (worker, _results, _commands, _stop) = HealthWorker::test_channel();
+        feature.worker = Some(worker);
+        feature.config = Some(valid_config());
+        feature.handle_key(KeyCode::Char('r'));
+        assert_eq!(feature.health_state, LoadState::Loading);
+        assert!(feature.snapshot_is_stale_at(Instant::now()));
+
+        let mut fresh = successful_refresh();
+        fresh.snapshot.as_mut().unwrap().collected_at = Instant::now();
+        feature.apply_refresh_result(fresh, Instant::now());
+        assert!(!feature.snapshot_is_stale_at(Instant::now()));
+        assert!(feature.snapshot_is_stale_at(Instant::now() + Duration::from_secs(21)));
+    }
+
+    #[test]
+    fn returning_to_launcher_cancels_an_active_worker_and_clears_the_schedule() {
+        for screen in [Screen::ConnectionSetup, Screen::Dashboard] {
+            let mut feature = DeviceHealthFeature::new();
+            let (worker, _results, _commands, mut stop) = HealthWorker::test_channel();
+            feature.worker = Some(worker);
+            feature.screen = screen;
+            feature.refresh_schedule.started();
+            assert_eq!(
+                feature.handle_key(KeyCode::Esc),
+                FeatureSignal::BackToLauncher
+            );
+            assert!(feature.worker.is_none());
+            assert!(!feature.refresh_schedule.in_flight);
+            assert!(feature.refresh_schedule.next_due.is_none());
+            assert!(stop.try_recv().is_ok());
+        }
+    }
+
+    #[test]
+    fn connection_fields_accept_q_as_text_input() {
+        let mut feature = DeviceHealthFeature::new();
+
+        for field in [
+            ConnectionField::Address,
+            ConnectionField::Username,
+            ConnectionField::Password,
+        ] {
+            feature.connection_form.selected_field = ConnectionField::all()
+                .iter()
+                .position(|candidate| *candidate == field)
+                .unwrap();
+            assert_eq!(feature.handle_key(KeyCode::Char('q')), FeatureSignal::None);
+        }
+
+        assert_eq!(feature.connection_form.address, "q");
+        assert_eq!(feature.connection_form.username, "q");
+        assert_eq!(feature.connection_form.password, "q");
+    }
+
+    #[test]
+    fn dashboard_quits_on_q() {
+        let mut feature = DeviceHealthFeature::new();
+        feature.screen = Screen::Dashboard;
+
+        assert_eq!(
+            feature.handle_key(KeyCode::Char('q')),
+            FeatureSignal::ExitApp
+        );
+    }
+
+    #[test]
+    fn disconnected_connection_worker_fails_and_clears_pending_attempt() {
+        let mut feature = DeviceHealthFeature::new();
+        let (worker, tx, _commands, _stop) = HealthWorker::test_channel();
+        feature.worker = Some(worker);
+        feature.refresh_schedule.started();
+        feature.connection_state = LoadState::Loading;
+        drop(tx);
+
+        feature.tick();
+
+        assert_eq!(feature.connection_state, LoadState::Failed);
+        assert!(feature.worker.is_none());
+        assert!(matches!(feature.screen, Screen::ConnectionSetup));
+        assert!(feature.status.contains("Select Connect to retry"));
+    }
+
+    #[test]
+    fn disconnected_refresh_worker_fails_and_keeps_previous_snapshot() {
+        let mut feature = DeviceHealthFeature::new();
+        let (worker, tx, _commands, _stop) = HealthWorker::test_channel();
+        feature.worker = Some(worker);
+        feature.screen = Screen::Dashboard;
+        feature.refresh_schedule.started();
+        feature.health_state = LoadState::Loading;
+        feature.snapshot = Some(sample_snapshot());
+        drop(tx);
+
+        feature.tick();
+
+        assert_eq!(feature.health_state, LoadState::Failed);
+        assert!(feature.worker.is_none());
+        assert_eq!(feature.snapshot.unwrap().device.hostname, "router-1");
+        assert!(feature.status.contains("Press r to retry"));
+    }
+
+    #[test]
+    fn pending_workers_remain_loading_until_results_arrive() {
+        let mut feature = DeviceHealthFeature::new();
+        let (worker, _tx, _commands, _stop) = HealthWorker::test_channel();
+        feature.worker = Some(worker);
+        feature.refresh_schedule.started();
+        feature.connection_state = LoadState::Loading;
+        feature.health_state = LoadState::Loading;
+
+        feature.tick();
+
+        assert_eq!(feature.connection_state, LoadState::Loading);
+        assert_eq!(feature.health_state, LoadState::Loading);
+        assert!(feature.worker.is_some());
+        assert!(feature.refresh_schedule.in_flight);
     }
 
     #[test]
@@ -1649,18 +2170,17 @@ mod tests {
     }
 
     #[test]
-    fn enter_on_connect_starts_connection_attempt() {
+    fn enter_on_connect_rejects_invalid_config_without_starting_worker() {
         let mut feature = DeviceHealthFeature::new();
-        feature.connection_form.address = "192.0.2.10".to_string();
-        feature.connection_form.username = "admin".to_string();
-        feature.connection_form.password = "pass".to_string();
         feature.connection_form.selected_field = ConnectionField::all().len() - 1;
 
         let signal = feature.handle_key(KeyCode::Enter);
 
         assert_eq!(signal, FeatureSignal::None);
-        assert!(feature.connection_rx.is_some());
-        assert_eq!(feature.connection_state, LoadState::Loading);
+        assert!(feature.worker.is_none());
+        assert_eq!(feature.connection_state, LoadState::Failed);
+        assert!(matches!(feature.screen, Screen::ConnectionSetup));
+        assert!(feature.status.contains("Device address is required"));
     }
 
     #[test]

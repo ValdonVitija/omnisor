@@ -12,3 +12,7 @@ authors.workspace = true
 omnisor = { path = "../omnisor" }
 regex.workspace = true
 tokio.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+omnisor-lab = { path = "../../tools/omnisor-lab" }

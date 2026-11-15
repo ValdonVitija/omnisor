@@ -1,0 +1,12 @@
+------------------------------------------------
+Local Intf: Gi0/0
+Chassis id: 0011.2233.4455
+Port id: Gi0/48
+System Name: core-sw1
+Management Address: 10.0.0.2
+------------------------------------------------
+Local Intf: Gi0/1
+Chassis id: 0011.2233.4466
+Port id: Gi0/47
+System Name: core-sw2
+Management Address: 10.0.0.3

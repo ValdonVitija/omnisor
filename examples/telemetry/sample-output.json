@@ -1,0 +1,360 @@
+{
+  "description": "Excerpts from an actual Collector integration run with synthetic IOS-schema exporter readings in the degraded scenario.",
+  "healthy_prometheus_exporter_text": "# HELP cpmCPUTotal1minRev One-minute CPU utilization from CISCO-PROCESS-MIB (synthetic).\n# TYPE cpmCPUTotal1minRev gauge\ncpmCPUTotal1minRev{cpmCPUTotalIndex=\"1\"} 19\n# HELP ciscoMemoryPoolUsed Used bytes from CISCO-MEMORY-POOL-MIB (synthetic).\n# TYPE ciscoMemoryPoolUsed gauge\nciscoMemoryPoolUsed{ciscoMemoryPoolName=\"Processor\"} 42000000\n# HELP ciscoMemoryPoolFree Free bytes from CISCO-MEMORY-POOL-MIB (synthetic).\n# TYPE ciscoMemoryPoolFree gauge\nciscoMemoryPoolFree{ciscoMemoryPoolName=\"Processor\"} 58000000\n# HELP ifAdminStatus Administrative state: 1 up, 2 down, 3 testing.\n# TYPE ifAdminStatus gauge\nifAdminStatus{ifIndex=\"1\",ifName=\"GigabitEthernet0/1\"} 1\nifAdminStatus{ifIndex=\"2\",ifName=\"GigabitEthernet0/2\"} 2\n# HELP ifOperStatus Operational state from IF-MIB (synthetic).\n# TYPE ifOperStatus gauge\nifOperStatus{ifIndex=\"1\",ifName=\"GigabitEthernet0/1\"} 1\nifOperStatus{ifIndex=\"2\",ifName=\"GigabitEthernet0/2\"} 2\n# HELP ifHCInOctets Cumulative received octets from IF-MIB (synthetic).\n# TYPE ifHCInOctets counter\nifHCInOctets{ifIndex=\"1\",ifName=\"GigabitEthernet0/1\"} 224315744750000\n",
+  "degraded_otlp_metric_excerpts": [
+    {
+      "description": "Operational state from IF-MIB (synthetic).",
+      "gauge": {
+        "dataPoints": [
+          {
+            "asDouble": 2.0,
+            "attributes": [
+              {
+                "key": "adapter_id",
+                "value": {
+                  "stringValue": "prometheus"
+                }
+              },
+              {
+                "key": "device_id",
+                "value": {
+                  "stringValue": "lab-ios-01"
+                }
+              },
+              {
+                "key": "ifIndex",
+                "value": {
+                  "stringValue": "1"
+                }
+              },
+              {
+                "key": "ifName",
+                "value": {
+                  "stringValue": "GigabitEthernet0/1"
+                }
+              }
+            ],
+            "exemplars": [],
+            "flags": 0,
+            "startTimeUnixNano": "0",
+            "timeUnixNano": "1794525961873000000"
+          },
+          {
+            "asDouble": 2.0,
+            "attributes": [
+              {
+                "key": "adapter_id",
+                "value": {
+                  "stringValue": "prometheus"
+                }
+              },
+              {
+                "key": "device_id",
+                "value": {
+                  "stringValue": "lab-ios-01"
+                }
+              },
+              {
+                "key": "ifIndex",
+                "value": {
+                  "stringValue": "2"
+                }
+              },
+              {
+                "key": "ifName",
+                "value": {
+                  "stringValue": "GigabitEthernet0/2"
+                }
+              }
+            ],
+            "exemplars": [],
+            "flags": 0,
+            "startTimeUnixNano": "0",
+            "timeUnixNano": "1794525961873000000"
+          }
+        ]
+      },
+      "metadata": [
+        {
+          "key": "prometheus.type",
+          "value": {
+            "stringValue": "gauge"
+          }
+        }
+      ],
+      "name": "ifOperStatus",
+      "unit": ""
+    },
+    {
+      "description": "One-minute CPU utilization from CISCO-PROCESS-MIB (synthetic).",
+      "gauge": {
+        "dataPoints": [
+          {
+            "asDouble": 96.0,
+            "attributes": [
+              {
+                "key": "adapter_id",
+                "value": {
+                  "stringValue": "prometheus"
+                }
+              },
+              {
+                "key": "cpmCPUTotalIndex",
+                "value": {
+                  "stringValue": "1"
+                }
+              },
+              {
+                "key": "device_id",
+                "value": {
+                  "stringValue": "lab-ios-01"
+                }
+              }
+            ],
+            "exemplars": [],
+            "flags": 0,
+            "startTimeUnixNano": "0",
+            "timeUnixNano": "1794525961873000000"
+          }
+        ]
+      },
+      "metadata": [
+        {
+          "key": "prometheus.type",
+          "value": {
+            "stringValue": "gauge"
+          }
+        }
+      ],
+      "name": "cpmCPUTotal1minRev",
+      "unit": ""
+    }
+  ],
+  "degraded_canonical_observations": [
+    {
+      "attributes": {
+        "adapter_id": "prometheus",
+        "device_id": "lab-ios-01",
+        "ifIndex": "1",
+        "ifName": "GigabitEthernet0/1",
+        "server.port": "61111",
+        "service.instance.id": "127.0.0.1:61111",
+        "service.name": "ios-snmp-exporter-demo",
+        "url.scheme": "http"
+      },
+      "device_id": "lab-ios-01",
+      "entity_id": "GigabitEthernet0/1",
+      "kind": "cumulative_counter",
+      "name": "interface.receive.bytes",
+      "observed_at_unix_nano": "1794525961873000000",
+      "profile_id": "ios-snmp",
+      "profile_revision": "1",
+      "received_at_unix_nano": "1794525962277844000",
+      "source_metric": "ifHCInOctets",
+      "start_time_unix_nano": "0",
+      "tenant_id": "demo-tenant",
+      "unit": "By",
+      "value": 224315745125000.0,
+      "window_seconds": null
+    },
+    {
+      "attributes": {
+        "adapter_id": "prometheus",
+        "device_id": "lab-ios-01",
+        "ifIndex": "1",
+        "ifName": "GigabitEthernet0/1",
+        "server.port": "61111",
+        "service.instance.id": "127.0.0.1:61111",
+        "service.name": "ios-snmp-exporter-demo",
+        "url.scheme": "http"
+      },
+      "device_id": "lab-ios-01",
+      "entity_id": "GigabitEthernet0/1",
+      "kind": "gauge",
+      "name": "interface.admin_status",
+      "observed_at_unix_nano": "1794525961873000000",
+      "profile_id": "ios-snmp",
+      "profile_revision": "1",
+      "received_at_unix_nano": "1794525962277844000",
+      "source_metric": "ifAdminStatus",
+      "start_time_unix_nano": "0",
+      "tenant_id": "demo-tenant",
+      "unit": "1",
+      "value": "up",
+      "window_seconds": null
+    },
+    {
+      "attributes": {
+        "adapter_id": "prometheus",
+        "device_id": "lab-ios-01",
+        "ifIndex": "2",
+        "ifName": "GigabitEthernet0/2",
+        "server.port": "61111",
+        "service.instance.id": "127.0.0.1:61111",
+        "service.name": "ios-snmp-exporter-demo",
+        "url.scheme": "http"
+      },
+      "device_id": "lab-ios-01",
+      "entity_id": "GigabitEthernet0/2",
+      "kind": "gauge",
+      "name": "interface.admin_status",
+      "observed_at_unix_nano": "1794525961873000000",
+      "profile_id": "ios-snmp",
+      "profile_revision": "1",
+      "received_at_unix_nano": "1794525962277844000",
+      "source_metric": "ifAdminStatus",
+      "start_time_unix_nano": "0",
+      "tenant_id": "demo-tenant",
+      "unit": "1",
+      "value": "down",
+      "window_seconds": null
+    },
+    {
+      "attributes": {
+        "adapter_id": "prometheus",
+        "device_id": "lab-ios-01",
+        "ifIndex": "1",
+        "ifName": "GigabitEthernet0/1",
+        "server.port": "61111",
+        "service.instance.id": "127.0.0.1:61111",
+        "service.name": "ios-snmp-exporter-demo",
+        "url.scheme": "http"
+      },
+      "device_id": "lab-ios-01",
+      "entity_id": "GigabitEthernet0/1",
+      "kind": "gauge",
+      "name": "interface.oper_status",
+      "observed_at_unix_nano": "1794525961873000000",
+      "profile_id": "ios-snmp",
+      "profile_revision": "1",
+      "received_at_unix_nano": "1794525962277844000",
+      "source_metric": "ifOperStatus",
+      "start_time_unix_nano": "0",
+      "tenant_id": "demo-tenant",
+      "unit": "1",
+      "value": "down",
+      "window_seconds": null
+    },
+    {
+      "attributes": {
+        "adapter_id": "prometheus",
+        "device_id": "lab-ios-01",
+        "ifIndex": "2",
+        "ifName": "GigabitEthernet0/2",
+        "server.port": "61111",
+        "service.instance.id": "127.0.0.1:61111",
+        "service.name": "ios-snmp-exporter-demo",
+        "url.scheme": "http"
+      },
+      "device_id": "lab-ios-01",
+      "entity_id": "GigabitEthernet0/2",
+      "kind": "gauge",
+      "name": "interface.oper_status",
+      "observed_at_unix_nano": "1794525961873000000",
+      "profile_id": "ios-snmp",
+      "profile_revision": "1",
+      "received_at_unix_nano": "1794525962277844000",
+      "source_metric": "ifOperStatus",
+      "start_time_unix_nano": "0",
+      "tenant_id": "demo-tenant",
+      "unit": "1",
+      "value": "down",
+      "window_seconds": null
+    },
+    {
+      "attributes": {
+        "adapter_id": "prometheus",
+        "cpmCPUTotalIndex": "1",
+        "device_id": "lab-ios-01",
+        "server.port": "61111",
+        "service.instance.id": "127.0.0.1:61111",
+        "service.name": "ios-snmp-exporter-demo",
+        "url.scheme": "http"
+      },
+      "device_id": "lab-ios-01",
+      "entity_id": "1",
+      "kind": "gauge",
+      "name": "device.cpu.utilization",
+      "observed_at_unix_nano": "1794525961873000000",
+      "profile_id": "ios-snmp",
+      "profile_revision": "1",
+      "received_at_unix_nano": "1794525962277844000",
+      "source_metric": "cpmCPUTotal1minRev",
+      "start_time_unix_nano": "0",
+      "tenant_id": "demo-tenant",
+      "unit": "1",
+      "value": 0.96,
+      "window_seconds": 60
+    },
+    {
+      "attributes": {
+        "adapter_id": "prometheus",
+        "ciscoMemoryPoolName": "Processor",
+        "device_id": "lab-ios-01",
+        "server.port": "61111",
+        "service.instance.id": "127.0.0.1:61111",
+        "service.name": "ios-snmp-exporter-demo",
+        "url.scheme": "http"
+      },
+      "device_id": "lab-ios-01",
+      "entity_id": "Processor",
+      "kind": "gauge",
+      "name": "device.memory.used",
+      "observed_at_unix_nano": "1794525961873000000",
+      "profile_id": "ios-snmp",
+      "profile_revision": "1",
+      "received_at_unix_nano": "1794525962277844000",
+      "source_metric": "ciscoMemoryPoolUsed",
+      "start_time_unix_nano": "0",
+      "tenant_id": "demo-tenant",
+      "unit": "By",
+      "value": 96000000.0,
+      "window_seconds": null
+    },
+    {
+      "attributes": {
+        "adapter_id": "prometheus",
+        "ciscoMemoryPoolName": "Processor",
+        "device_id": "lab-ios-01",
+        "server.port": "61111",
+        "service.instance.id": "127.0.0.1:61111",
+        "service.name": "ios-snmp-exporter-demo",
+        "url.scheme": "http"
+      },
+      "device_id": "lab-ios-01",
+      "entity_id": "Processor",
+      "kind": "gauge",
+      "name": "device.memory.free",
+      "observed_at_unix_nano": "1794525961873000000",
+      "profile_id": "ios-snmp",
+      "profile_revision": "1",
+      "received_at_unix_nano": "1794525962277844000",
+      "source_metric": "ciscoMemoryPoolFree",
+      "start_time_unix_nano": "0",
+      "tenant_id": "demo-tenant",
+      "unit": "By",
+      "value": 4000000.0,
+      "window_seconds": null
+    }
+  ],
+  "degraded_findings": [
+    {
+      "device_id": "lab-ios-01",
+      "entity_id": "GigabitEthernet0/1",
+      "message": "Interface is administratively up but operationally down",
+      "severity": "warning"
+    },
+    {
+      "device_id": "lab-ios-01",
+      "entity_id": "1",
+      "message": "CPU utilization is 96.0% (averaging window: 60s)",
+      "severity": "critical"
+    },
+    {
+      "device_id": "lab-ios-01",
+      "entity_id": "Processor",
+      "message": "Memory pool utilization is 96.0% (used / (used + free))",
+      "severity": "critical"
+    }
+  ]
+}

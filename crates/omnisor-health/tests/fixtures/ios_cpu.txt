@@ -1,0 +1,1 @@
+CPU utilization for five seconds: 2%/0%; one minute: 19%; five minutes: 12%

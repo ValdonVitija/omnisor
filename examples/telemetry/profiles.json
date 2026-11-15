@@ -1,0 +1,113 @@
+{
+  "devices": {
+    "lab-ios-01": {
+      "profile": "ios-snmp",
+      "vendor": "Cisco (synthetic)",
+      "os": "IOS fixture"
+    },
+    "lab-router-02": {
+      "profile": "structured-exporter",
+      "vendor": "Independent exporter fixture",
+      "os": "Synthetic structured model"
+    }
+  },
+  "profiles": {
+    "ios-snmp": {
+      "revision": "1",
+      "enabled": true,
+      "mappings": {
+        "cpmCPUTotal1minRev": {
+          "name": "device.cpu.utilization",
+          "unit": "1",
+          "conversion": "percent_to_ratio",
+          "entity_label": "cpmCPUTotalIndex",
+          "window_seconds": 60,
+          "kind": "gauge"
+        },
+        "ciscoMemoryPoolUsed": {
+          "name": "device.memory.used",
+          "unit": "By",
+          "conversion": "identity",
+          "entity_label": "ciscoMemoryPoolName",
+          "kind": "gauge"
+        },
+        "ciscoMemoryPoolFree": {
+          "name": "device.memory.free",
+          "unit": "By",
+          "conversion": "identity",
+          "entity_label": "ciscoMemoryPoolName",
+          "kind": "gauge"
+        },
+        "ifAdminStatus": {
+          "name": "interface.admin_status",
+          "unit": "1",
+          "conversion": "admin_state",
+          "entity_label": "ifName",
+          "kind": "gauge"
+        },
+        "ifOperStatus": {
+          "name": "interface.oper_status",
+          "unit": "1",
+          "conversion": "oper_state",
+          "entity_label": "ifName",
+          "kind": "gauge"
+        },
+        "ifHCInOctets": {
+          "name": "interface.receive.bytes",
+          "unit": "By",
+          "conversion": "identity",
+          "entity_label": "ifName",
+          "kind": "cumulative_counter"
+        }
+      }
+    },
+    "structured-exporter": {
+      "revision": "1",
+      "enabled": true,
+      "mappings": {
+        "oc_cpu_utilization_percent": {
+          "name": "device.cpu.utilization",
+          "unit": "1",
+          "conversion": "percent_to_ratio",
+          "entity_label": "cpu",
+          "kind": "gauge"
+        },
+        "oc_memory_used_bytes": {
+          "name": "device.memory.used",
+          "unit": "By",
+          "conversion": "identity",
+          "entity_label": "pool",
+          "kind": "gauge"
+        },
+        "oc_memory_free_bytes": {
+          "name": "device.memory.free",
+          "unit": "By",
+          "conversion": "identity",
+          "entity_label": "pool",
+          "kind": "gauge"
+        },
+        "oc_interface_admin_status": {
+          "name": "interface.admin_status",
+          "unit": "1",
+          "conversion": "admin_state",
+          "entity_label": "interface",
+          "kind": "gauge"
+        },
+        "oc_interface_oper_status": {
+          "name": "interface.oper_status",
+          "unit": "1",
+          "conversion": "oper_state",
+          "entity_label": "interface",
+          "kind": "gauge"
+        },
+        "oc_interface_in_octets": {
+          "name": "interface.receive.bytes",
+          "unit": "By",
+          "conversion": "identity",
+          "entity_label": "interface",
+          "kind": "cumulative_counter"
+        }
+      }
+    }
+  }
+}

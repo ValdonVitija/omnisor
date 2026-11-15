@@ -12,6 +12,8 @@ authors.workspace = true
 
 [features]
 openssl = []
+# Enables tests that require the SSH/HTTP services and keys in tests/.
+ssh-integration-tests = []
 
 [dependencies]
 russh.workspace = true
@@ -23,3 +25,4 @@ regex.workspace = true
 
 [dev-dependencies]
 dotenv.workspace = true
+omnisor-lab = { path = "../../tools/omnisor-lab" }

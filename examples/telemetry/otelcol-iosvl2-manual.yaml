@@ -1,0 +1,63 @@
+# Standalone inspection of the real IOSvL2 lab. Run from the repository root.
+# Start the native Mac snmp_exporter on 127.0.0.1:9116 first, using a generated
+# cisco-iosvl2 config with auth named "session". No Rust receiver is needed here.
+# This file is independent of the desktop's generated, authenticated pipeline.
+receivers:
+  prometheus/iosvl2:
+    trim_metric_suffixes: false
+    config:
+      scrape_configs:
+        - job_name: iosvl2-manual
+          scrape_interval: 10s
+          scrape_timeout: 9s
+          honor_labels: false
+          honor_timestamps: false
+          sample_limit: 10000
+          metrics_path: /snmp
+          params:
+            target: ['127.0.0.1:1161']
+            auth: [session]
+            module: ['system,if_mib,cisco_ios_legacy']
+          static_configs:
+            - targets: ['127.0.0.1:9116']
+              labels:
+                device_id: gns3-iosvl2
+                adapter_id: snmp
+          # Start with three resource metrics so detailed output stays readable.
+          # Remove this block to inspect all exporter metrics, or extend the
+          # regex with ifHCInOctets|ifHCOutOctets|ifAdminStatus|ifOperStatus.
+          # Prometheus also generates its own scrape-health metrics such as up.
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: '(avgBusy1|freeMem|processorRam)'
+              action: keep
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+    spike_limit_mib: 32
+  batch:
+    timeout: 1s
+    send_batch_size: 256
+    send_batch_max_size: 512
+
+exporters:
+  debug:
+    verbosity: detailed
+  file/inspection:
+    path: '${env:OMNISOR_MANUAL_OUTPUT:-target/manual-telemetry/otlp-metrics.jsonl}'
+    format: json
+    rotation:
+      max_megabytes: 10
+      max_backups: 2
+
+service:
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    metrics:
+      receivers: [prometheus/iosvl2]
+      processors: [memory_limiter, batch]
+      exporters: [debug, file/inspection]

@@ -1,0 +1,35 @@
+id: cisco-ios-snmp
+revision: '1'
+title: Cisco IOS / IOS-XE SNMP
+extends: [generic-if-mib]
+vendor: Cisco
+os: IOS / IOS-XE
+support: Experimental. MIB presence varies by model and software; not a hardware compatibility claim.
+adapters: [snmp, prometheus]
+device:
+  label: Cisco IOS / IOS-XE
+connection:
+  kind: snmp_v3
+  port: 161
+  interval_seconds: 10
+snmp_modules: [cisco_device]
+mappings:
+  cpmCPUTotal1minRev:
+    name: device.cpu.utilization
+    unit: '1'
+    conversion: percent_to_ratio
+    entity_label: cpmCPUTotalIndex
+    window_seconds: 60
+    kind: gauge
+  ciscoMemoryPoolUsed:
+    name: device.memory.used
+    unit: By
+    conversion: identity
+    entity_label: ciscoMemoryPoolType
+    kind: gauge
+  ciscoMemoryPoolFree:
+    name: device.memory.free
+    unit: By
+    conversion: identity
+    entity_label: ciscoMemoryPoolType
+    kind: gauge

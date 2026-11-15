@@ -1,0 +1,27 @@
+{
+  "generator_version": "0.29.0",
+  "generator_source_sha256": "b6f8f01909e798eefd7ead07bdc263914221b4454c60c40097a1b23b73bac7b2",
+  "cisco_mibs_revision": "c9ab98c03ee051de74edda72f6d5c43ee65cad91",
+  "files": [
+    {
+      "name": "CISCO-SMI.my",
+      "url": "https://raw.githubusercontent.com/cisco/cisco-mibs/c9ab98c03ee051de74edda72f6d5c43ee65cad91/v2/CISCO-SMI.my",
+      "sha256": "3ea80f8160af50ba77e7309b7f95b4b6edb3ddc57dbe67eb0ee18ae1b56fd332"
+    },
+    {
+      "name": "OLD-CISCO-CPU-MIB.my",
+      "url": "https://raw.githubusercontent.com/cisco/cisco-mibs/c9ab98c03ee051de74edda72f6d5c43ee65cad91/v1/OLD-CISCO-CPU-MIB.my",
+      "sha256": "b1beba5cc7d1806b6225af66e2edd05bc90cdedf7c4f68a7f0719e557082f7f2"
+    },
+    {
+      "name": "OLD-CISCO-MEMORY-MIB.my",
+      "url": "https://raw.githubusercontent.com/cisco/cisco-mibs/c9ab98c03ee051de74edda72f6d5c43ee65cad91/v1/OLD-CISCO-MEMORY-MIB.my",
+      "sha256": "a2d873b4f91286865d9acbe6d2cff7261d81d6af41c6d7cb7ed234131d99e90c"
+    },
+    {
+      "name": "OLD-CISCO-CHASSIS-MIB.my",
+      "url": "https://raw.githubusercontent.com/cisco/cisco-mibs/c9ab98c03ee051de74edda72f6d5c43ee65cad91/v2/OLD-CISCO-CHASSIS-MIB.my",
+      "sha256": "26449777d87d6d29c8074b40e807b0452118a58f9734cfcd5a26d33f8e4459e8"
+    }
+  ]
+}

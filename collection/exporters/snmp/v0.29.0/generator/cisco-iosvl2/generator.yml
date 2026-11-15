@@ -1,0 +1,7 @@
+# Input for the upstream snmp_exporter v0.29.0 generator. No device credentials.
+modules:
+  cisco_ios_legacy:
+    walk:
+      - OLD-CISCO-CPU-MIB::avgBusy1
+      - OLD-CISCO-MEMORY-MIB::freeMem
+      - OLD-CISCO-CHASSIS-MIB::processorRam

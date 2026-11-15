@@ -1,0 +1,8 @@
+id: synthetic
+revision: '1'
+title: Synthetic device / live pipeline test
+extends: [native-prometheus]
+vendor: Omnisor lab
+os: Synthetic
+support: Simulation only. Uses a real Collector and OTLP receiver; no network device is contacted.
+adapters: [synthetic]

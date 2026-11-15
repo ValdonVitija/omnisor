@@ -12,4 +12,4 @@ authors.workspace = true
 omnisor = { path = "../omnisor" }
 omnisor-health = { path = "../omnisor-health" }
 ratatui.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }

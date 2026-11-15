@@ -1,0 +1,41 @@
+# Validated with otelcol-contrib 0.140.0. The planner inserts one scrape job.
+receivers:
+  prometheus/device:
+    trim_metric_suffixes: false
+    config:
+      scrape_configs: []
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+    spike_limit_mib: 32
+  batch:
+    timeout: 500ms
+    send_batch_size: 256
+    send_batch_max_size: 512
+exporters:
+  otlphttp/desktop:
+    endpoint: http://127.0.0.1:0
+    encoding: proto
+    compression: none
+    headers:
+      Authorization: 'Bearer ${env:OMNISOR_INGEST_TOKEN}'
+    sending_queue:
+      enabled: true
+      queue_size: 8
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 3s
+      max_elapsed_time: 10s
+service:
+  telemetry:
+    logs:
+      level: warn
+    metrics:
+      level: none
+  pipelines:
+    metrics:
+      receivers: [prometheus/device]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/desktop]

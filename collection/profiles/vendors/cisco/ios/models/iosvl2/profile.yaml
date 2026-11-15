@@ -1,0 +1,34 @@
+id: cisco-iosvl2
+revision: '2'
+title: Cisco IOSvL2
+extends: [generic-if-mib]
+vendor: Cisco
+os: IOS
+support: Legacy CPU and processor free/total RAM OIDs, interfaces and traffic validated on the 20190423 GNS3 image. Generic IOS CPU/memory MIBs are absent on this image.
+adapters: [snmp, prometheus]
+device:
+  label: Cisco IOSvL2
+  model: IOSvL2
+  device_type: Switch
+connection:
+  kind: snmp_v3
+  port: 161
+  interval_seconds: 10
+snmp_modules: [cisco_ios_legacy]
+mappings:
+  avgBusy1:
+    name: device.cpu.utilization
+    unit: '1'
+    conversion: percent_to_ratio
+    kind: gauge
+    window_seconds: 60
+  freeMem:
+    name: device.memory.free
+    unit: By
+    conversion: identity
+    kind: gauge
+  processorRam:
+    name: device.memory.total
+    unit: By
+    conversion: identity
+    kind: gauge

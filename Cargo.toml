@@ -4,6 +4,11 @@ members = [
     "crates/omnisor-health",
     "crates/omnisor-feature-device-health",
     "apps/omnisor-app",
+    "apps/omnisor-desktop",
+    "tools/omnisor-lab",
+    "crates/omnisor-telemetry",
+    "crates/omnisor-collection",
+    "tools/omnisor-telemetry-demo",
 ]
 resolver = "3"
 
@@ -20,7 +25,7 @@ log = "0.4"
 ratatui = "0.30.0"
 regex = "1.12.2"
 russh = "0.55.0"
-russh-sftp = "2.1.1"
+russh-sftp = "2.4.0"
 thiserror = "2.0.17"
 tokio = { version = "1.45.1", features = ["fs"] }
 dotenv = "0.15.0"
