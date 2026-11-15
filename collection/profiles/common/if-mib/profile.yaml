@@ -1,0 +1,77 @@
+id: generic-if-mib
+revision: '1'
+title: Generic SNMP / IF-MIB
+vendor: Any vendor
+os: Any OS with IF-MIB
+support: Experimental; interface coverage only, validate against the exact device/OS.
+adapters: [snmp, prometheus]
+snmp_modules: [system, if_mib]
+mappings:
+  ifAdminStatus:
+    name: interface.admin_status
+    unit: '1'
+    conversion: admin_state
+    entity_label: ifIndex
+    kind: gauge
+  ifOperStatus:
+    name: interface.oper_status
+    unit: '1'
+    conversion: oper_state
+    entity_label: ifIndex
+    kind: gauge
+  ifHCInOctets:
+    name: interface.receive.bytes
+    unit: By
+    conversion: identity
+    entity_label: ifIndex
+    kind: cumulative_counter
+  ifHCOutOctets:
+    name: interface.transmit.bytes
+    unit: By
+    conversion: identity
+    entity_label: ifIndex
+    kind: cumulative_counter
+  ifInErrors:
+    name: interface.receive.errors
+    unit: '{error}'
+    conversion: identity
+    entity_label: ifIndex
+    kind: cumulative_counter
+  ifOutErrors:
+    name: interface.transmit.errors
+    unit: '{error}'
+    conversion: identity
+    entity_label: ifIndex
+    kind: cumulative_counter
+  ifInDiscards:
+    name: interface.receive.discards
+    unit: '{packet}'
+    conversion: identity
+    entity_label: ifIndex
+    kind: cumulative_counter
+  ifOutDiscards:
+    name: interface.transmit.discards
+    unit: '{packet}'
+    conversion: identity
+    entity_label: ifIndex
+    kind: cumulative_counter
+  sysName:
+    name: device.info.name
+    unit: "1"
+    conversion: identity
+    kind: gauge
+  sysDescr:
+    name: device.info.description
+    unit: "1"
+    conversion: identity
+    kind: gauge
+  sysObjectID:
+    name: device.info.object_id
+    unit: "1"
+    conversion: identity
+    kind: gauge
+  sysUpTime:
+    name: device.uptime.ticks
+    unit: "{centisecond}"
+    conversion: identity
+    kind: gauge

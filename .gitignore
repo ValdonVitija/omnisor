@@ -8,3 +8,6 @@ authorized_keys
 ssh_host_*_key*
 known_hosts
 /.idea/
+/tests/lab/images/
+/tests/lab/clab-*/
+/tests/lab/.clab*

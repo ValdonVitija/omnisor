@@ -48,7 +48,7 @@ For simple command execution on Linux/Unix servers, you can either use omnisor o
 
 For interactive sessions with network devices (routers, switches, firewalls):
 
-```rust
+```rust,no_run
 use omnisor::{DeviceSession, CiscoVariant};
 
 #[tokio::main]
@@ -75,7 +75,7 @@ async fn main() -> Result<(), omnisor::Error> {
 
 For more control over device connections:
 
-```rust
+```rust,no_run
 use omnisor::{CiscoVariant, DeviceSession};
 
 #[tokio::main]
@@ -101,7 +101,7 @@ async fn main() -> Result<(), omnisor::Error> {
 
 For older devices requiring legacy SSH algorithms (for example older Cisco IOS):
 
-```rust
+```rust,no_run
 use omnisor::{DeviceSession, CiscoVariant};
 
 #[tokio::main]
@@ -126,7 +126,7 @@ async fn main() -> Result<(), omnisor::Error> {
 
 For control over SSH algorithms you can specify whatever you like that is supported under https://github.com/Eugeny/russh
 
-```rust
+```rust,no_run
 use omnisor::{DeviceSession, CiscoVariant, SshAlgorithms, kex, cipher, mac};
 
 #[tokio::main]
@@ -160,7 +160,7 @@ Omnisor offers ready to use methods to change between router modes (user/enable/
 > [!IMPORTANT]
 > **Don't expect complete support for every device vendor and version as of now. This has been massively influenced by cisco devices.**
 
-```rust
+```rust,no_run
 use omnisor::{CiscoVariant, DeviceSession};
 
 #[tokio::main]
@@ -177,14 +177,37 @@ async fn main() -> Result<(), omnisor::Error> {
     //In the future I plan to offer the possibility
     //of going into any mode from every other mode
     //without having to follow the normal chronology of steps.
-    let _ = session.enter_enable_mode("enable", Some("cisco")).await?;
-    let _ = session.enter_config_mode("config t").await?;
-    let _ = session.exit_config_mode("exit").await?;
-    let _ = session.exit_from_enable_mode("disable").await?;
+    session.enter_enable_mode("enable", Some("cisco")).await?;
+    session.enter_config_mode("config t").await?;
+    session.exit_config_mode("exit").await?;
+    session.exit_from_enable_mode("disable").await?;
 
     session.close().await?;
     Ok(())
 }
+```
+
+## Testing
+
+Run unit and documentation tests without network devices or an SSH server:
+
+```bash
+cargo test --workspace
+```
+
+The SSH integration suite is opt-in. From the repository root, run
+`./tests/run_unit_tests.sh` to start the Docker SSH/HTTP services and run it.
+`./tests/local_unit_tests.sh` uses an existing local SSH test server instead.
+Both scripts enable the `omnisor/ssh-integration-tests` feature.
+
+Custom device configurations can be checked without connecting:
+
+```rust
+use omnisor::DeviceConfig;
+
+let config = DeviceConfig::with_prompt(r"(?:^|[\r\n])my-device>\s*$")
+    .add_error_pattern(r"Unknown command");
+config.validate().expect("invalid device profile");
 ```
 
 # Contribution

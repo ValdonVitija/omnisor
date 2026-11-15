@@ -1,0 +1,7 @@
+schema_version: 1
+profiles:
+  - profiles/common/if-mib/profile.yaml
+  - profiles/vendors/cisco/ios/generic/profile.yaml
+  - profiles/vendors/cisco/ios/models/iosvl2/profile.yaml
+  - profiles/generic/prometheus/profile.yaml
+  - profiles/synthetic/profile.yaml

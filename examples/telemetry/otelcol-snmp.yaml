@@ -1,0 +1,26 @@
+# Overlay on otelcol.yaml: replaces the active metrics pipeline's receiver.
+# snmp_exporter must be configured with an auth named by OMNISOR_SNMP_AUTH,
+# and the upstream if_mib + cisco_device modules (tested schema: v0.29.0).
+receivers:
+  prometheus/real-snmp:
+    trim_metric_suffixes: false
+    config:
+      scrape_configs:
+        - job_name: real-snmp-device
+          scrape_interval: 10s
+          scrape_timeout: 9s
+          metrics_path: /snmp
+          params:
+            auth: ['${env:OMNISOR_SNMP_AUTH}']
+            module: [if_mib, cisco_device]
+            target: ['${env:OMNISOR_DEVICE_ADDRESS}']
+          static_configs:
+            - targets: ['127.0.0.1:9116']
+              labels:
+                # Enrolled ID from profiles.json; replace for your inventory.
+                device_id: lab-ios-01
+                adapter_id: snmp-exporter
+service:
+  pipelines:
+    metrics:
+      receivers: [prometheus/real-snmp]

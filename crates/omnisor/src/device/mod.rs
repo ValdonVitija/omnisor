@@ -289,6 +289,15 @@ impl DeviceConfig {
         self.ssh_algorithms(SshAlgorithms::modern())
     }
 
+    /// Validate every configured prompt and error pattern without connecting to a device.
+    ///
+    /// Custom device profiles can use this to report invalid regular expressions locally.
+    /// Session constructors also validate these patterns before opening an SSH connection
+    /// or requesting a channel from an existing client.
+    pub fn validate(&self) -> Result<(), crate::Error> {
+        CompiledPatterns::new(self).map(|_| ())
+    }
+
     /// Builds a russh Config from this DeviceConfig
     pub(crate) fn to_ssh_config(&self) -> Config {
         let mut config = Config::default();
@@ -298,6 +307,47 @@ impl DeviceConfig {
         }
 
         config
+    }
+}
+
+/// Compiled profile patterns shared by validation and session construction.
+struct CompiledPatterns {
+    base_prompt: Regex,
+    errors: Vec<Regex>,
+    enable: Option<Regex>,
+    enable_password: Option<Regex>,
+    config: Option<Regex>,
+}
+
+impl CompiledPatterns {
+    fn new(config: &DeviceConfig) -> Result<Self, crate::Error> {
+        fn compile(pattern: &str) -> Result<Regex, crate::Error> {
+            Regex::new(pattern).map_err(|e| crate::Error::InvalidPromptPattern(e.to_string()))
+        }
+
+        Ok(Self {
+            base_prompt: compile(&config.prompt_pattern)?,
+            errors: config
+                .error_patterns
+                .iter()
+                .map(|pattern| compile(pattern))
+                .collect::<Result<_, _>>()?,
+            enable: config
+                .enable_mode_prompt_pattern
+                .as_deref()
+                .map(compile)
+                .transpose()?,
+            enable_password: config
+                .enable_mode_password_prompt_pattern
+                .as_deref()
+                .map(compile)
+                .transpose()?,
+            config: config
+                .config_mode_prompt_pattern
+                .as_deref()
+                .map(compile)
+                .transpose()?,
+        })
     }
 }
 
@@ -344,6 +394,7 @@ impl DeviceSession {
         V: Into<DeviceVendor>,
     {
         let config = vendor.into().into_config();
+        let patterns = CompiledPatterns::new(&config)?;
         let ssh_config = config.to_ssh_config();
 
         let client = Client::connect_with_config(
@@ -355,7 +406,7 @@ impl DeviceSession {
         )
         .await?;
 
-        Self::from_client(client, config).await
+        Self::from_client_with_patterns(client, config, patterns).await
     }
     /// Use this method if you want to create a new device session using the builder pattern by chaining method calls to set
     /// parameters in sequence
@@ -365,6 +416,15 @@ impl DeviceSession {
 
     /// Create a device session from an existing SSH client.
     pub async fn from_client(client: Client, config: DeviceConfig) -> Result<Self, crate::Error> {
+        let patterns = CompiledPatterns::new(&config)?;
+        Self::from_client_with_patterns(client, config, patterns).await
+    }
+
+    async fn from_client_with_patterns(
+        client: Client,
+        config: DeviceConfig,
+        patterns: CompiledPatterns,
+    ) -> Result<Self, crate::Error> {
         let channel = client.get_channel().await?;
 
         channel
@@ -381,48 +441,18 @@ impl DeviceSession {
 
         channel.request_shell(true).await?;
 
-        let base_prompt_regex = Regex::new(&config.prompt_pattern)
-            .map_err(|e| crate::Error::InvalidPromptPattern(e.to_string()))?;
-
-        let prompt_regex = base_prompt_regex.clone();
-
-        let error_regexes: Vec<Regex> = config
-            .error_patterns
-            .iter()
-            .map(|p| Regex::new(p).map_err(|e| crate::Error::InvalidPromptPattern(e.to_string())))
-            .collect::<Result<Vec<Regex>, _>>()?;
-
-        let enable_regex = if let Some(ref p) = config.enable_mode_prompt_pattern {
-            Some(Regex::new(p).map_err(|e| crate::Error::InvalidPromptPattern(e.to_string()))?)
-        } else {
-            None
-        };
-
-        let enable_password_regex = if let Some(ref p) = config.enable_mode_password_prompt_pattern
-        {
-            Some(Regex::new(p).map_err(|e| crate::Error::InvalidPromptPattern(e.to_string()))?)
-        } else {
-            None
-        };
-
-        let config_regex = if let Some(ref p) = config.config_mode_prompt_pattern {
-            Some(Regex::new(p).map_err(|e| crate::Error::InvalidPromptPattern(e.to_string()))?)
-        } else {
-            None
-        };
-
         let config_arc = Arc::new(config);
 
         let mut session = Self {
             client,
             channel,
             config: config_arc.clone(),
-            prompt_regex,
-            base_prompt_regex,
-            error_regexes,
-            enable_regex,
-            enable_password_regex,
-            config_regex,
+            prompt_regex: patterns.base_prompt.clone(),
+            base_prompt_regex: patterns.base_prompt,
+            error_regexes: patterns.errors,
+            enable_regex: patterns.enable,
+            enable_password_regex: patterns.enable_password,
+            config_regex: patterns.config,
             buffer: String::with_capacity(4096),
         };
 
@@ -517,9 +547,13 @@ impl DeviceSession {
         let mut got_data = false;
         let start_len = output.len();
 
-        while let Ok(Some(msg)) =
-            tokio::time::timeout(Duration::from_millis(10), self.channel.wait()).await
-        {
+        loop {
+            let msg =
+                match tokio::time::timeout(Duration::from_millis(10), self.channel.wait()).await {
+                    Ok(Some(msg)) => msg,
+                    Ok(None) => return Err(crate::Error::DeviceSessionClosed),
+                    Err(_) => break,
+                };
             match msg {
                 russh::ChannelMsg::Data { data } => {
                     output.push_str(&String::from_utf8_lossy(&data));
@@ -537,10 +571,8 @@ impl DeviceSession {
                 // | russh::ChannelMsg::Signal { .. } => {
                 //     continue;
                 // }
-                russh::ChannelMsg::Failure => {
-                    if !got_data {
-                        return Err(crate::Error::DeviceSessionClosed);
-                    }
+                russh::ChannelMsg::Failure if !got_data => {
+                    return Err(crate::Error::DeviceSessionClosed);
                 }
                 // NOTE: I have to think about explicitly handling these cases, because with what I saw, not really needed here
                 // russh::ChannelMsg::ExitStatus { .. } => {
@@ -812,6 +844,7 @@ pub struct DeviceSessionBuilder {
     auth: Option<AuthMethod>,
     server_check: ServerCheckMethod,
     vendor: Option<DeviceVendor>,
+    ssh_algorithms: Option<SshAlgorithms>,
 }
 
 impl DeviceSessionBuilder {
@@ -823,6 +856,7 @@ impl DeviceSessionBuilder {
             auth: None,
             server_check: ServerCheckMethod::NoCheck,
             vendor: None,
+            ssh_algorithms: None,
         }
     }
 
@@ -861,6 +895,12 @@ impl DeviceSessionBuilder {
         self
     }
 
+    /// Override SSH algorithm preferences from the selected device profile.
+    pub fn ssh_algorithms(mut self, algorithms: SshAlgorithms) -> Self {
+        self.ssh_algorithms = Some(algorithms);
+        self
+    }
+
     pub async fn connect(self) -> Result<DeviceSession, crate::Error> {
         let address = self
             .address
@@ -872,18 +912,18 @@ impl DeviceSessionBuilder {
             crate::Error::InvalidAddress("Authentication method not specified".into())
         })?;
 
-        let full_address = if address.contains(':') {
-            address
-        } else {
-            format!("{}:{}", address, self.port)
-        };
+        let full_address = device_endpoint(&address, self.port);
 
-        let config = if let Some(v) = self.vendor {
+        let mut config = if let Some(v) = self.vendor {
             v.into_config()
         } else {
             DeviceConfig::default()
         };
 
+        if let Some(algorithms) = self.ssh_algorithms {
+            config.ssh_algorithms = Some(algorithms);
+        }
+        let patterns = CompiledPatterns::new(&config)?;
         let ssh_config = config.to_ssh_config();
 
         let client = Client::connect_with_config(
@@ -895,12 +935,157 @@ impl DeviceSessionBuilder {
         )
         .await?;
 
-        DeviceSession::from_client(client, config).await
+        DeviceSession::from_client_with_patterns(client, config, patterns).await
+    }
+}
+
+fn device_endpoint(address: &str, port: u16) -> String {
+    let ipv6_host = address.parse::<std::net::Ipv6Addr>().is_ok()
+        || address.split_once('%').is_some_and(|(ip, scope)| {
+            !scope.is_empty() && ip.parse::<std::net::Ipv6Addr>().is_ok()
+        });
+    if ipv6_host {
+        format!("[{address}]:{port}")
+    } else if address.starts_with('[') && address.ends_with(']') {
+        format!("{address}:{port}")
+    } else if address.contains(':') {
+        address.to_string()
+    } else {
+        format!("{address}:{port}")
     }
 }
 
 impl Default for DeviceSessionBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_endpoints_support_ipv6_and_preserve_explicit_ports() {
+        for (address, port, expected) in [
+            ("router.example", 2222, "router.example:2222"),
+            ("127.0.0.1", 2222, "127.0.0.1:2222"),
+            ("router.example:2200", 2222, "router.example:2200"),
+            ("127.0.0.1:2200", 2222, "127.0.0.1:2200"),
+            ("::1", 2222, "[::1]:2222"),
+            ("2001:db8::1", 2222, "[2001:db8::1]:2222"),
+            ("fe80::1%2", 2222, "[fe80::1%2]:2222"),
+            ("[::1]", 2222, "[::1]:2222"),
+            ("[2001:db8::1]:2200", 2222, "[2001:db8::1]:2200"),
+        ] {
+            assert_eq!(device_endpoint(address, port), expected);
+        }
+    }
+
+    fn invalid_profiles() -> Vec<(&'static str, DeviceConfig)> {
+        vec![
+            ("prompt", DeviceConfig::with_prompt("[")),
+            (
+                "enable prompt",
+                DeviceConfig::default().add_enable_mode_prompt_pattern("["),
+            ),
+            (
+                "enable password prompt",
+                DeviceConfig::default().add_enable_mode_password_prompt_pattern("["),
+            ),
+            (
+                "config prompt",
+                DeviceConfig::default().add_config_mode_prompt_pattern("["),
+            ),
+            (
+                "error pattern",
+                DeviceConfig::default()
+                    .add_error_pattern("valid error")
+                    .add_error_pattern("["),
+            ),
+        ]
+    }
+
+    #[test]
+    fn validation_rejects_invalid_patterns_in_every_profile_field() {
+        for (field, config) in invalid_profiles() {
+            assert!(
+                matches!(
+                    config.validate(),
+                    Err(crate::Error::InvalidPromptPattern(_))
+                ),
+                "invalid {field} pattern was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn custom_profiles_can_omit_mode_patterns() {
+        let config = DeviceConfig {
+            enable_mode_prompt_pattern: None,
+            enable_mode_password_prompt_pattern: None,
+            config_mode_prompt_pattern: None,
+            ..DeviceConfig::with_prompt(r"(?:^|[\r\n])custom-device>\s*$")
+                .add_error_pattern(r"(?i)unknown command")
+        };
+
+        config.validate().unwrap();
+        let patterns = CompiledPatterns::new(&config).unwrap();
+        assert!(patterns.base_prompt.is_match("output\r\ncustom-device>"));
+        assert!(patterns.errors[0].is_match("Unknown command"));
+        assert!(patterns.enable.is_none());
+        assert!(patterns.enable_password.is_none());
+        assert!(patterns.config.is_none());
+    }
+
+    #[test]
+    fn built_in_profile_patterns_are_valid() {
+        DeviceConfig::default().validate().unwrap();
+        for variant in [
+            CiscoVariant::Ios,
+            CiscoVariant::IosXe,
+            CiscoVariant::IosXr,
+            CiscoVariant::NxOs,
+            CiscoVariant::Asa,
+            CiscoVariant::Wlc,
+            CiscoVariant::IosLegacy,
+        ] {
+            variant.into_config().validate().unwrap();
+        }
+        for variant in [JuniperVariant::Junos, JuniperVariant::ScreenOs] {
+            variant.into_config().validate().unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn direct_connection_validates_custom_profiles_before_address_resolution() {
+        for (field, config) in invalid_profiles() {
+            let result =
+                DeviceSession::connect("not a socket address", "username", "password", config)
+                    .await;
+
+            assert!(
+                matches!(result, Err(crate::Error::InvalidPromptPattern(_))),
+                "invalid {field} pattern was not rejected before resolving the address"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn builder_validates_custom_profiles_before_address_resolution() {
+        for (field, config) in invalid_profiles() {
+            let result = DeviceSession::builder()
+                .address("not a socket address")
+                .username("username")
+                .password("password")
+                .vendor(config)
+                .connect()
+                .await;
+
+            assert!(
+                matches!(result, Err(crate::Error::InvalidPromptPattern(_))),
+                "invalid {field} pattern was not rejected before resolving the address"
+            );
+        }
     }
 }

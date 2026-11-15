@@ -1,31 +1,100 @@
-<p align="center">
+<!-- <p align="center">
     <img alt="Omnisor Logo" src="logo.png">
 </p>
 
-<h1 align="center">Omnisor - Network Device SSH Library and Terminal App</h1>
+<h1 align="center">Omnisor — Network Troubleshooting Workbench</h1>
 
 # About
 
-Omnisor is now organized as a workspace with separate packages for:
+Omnisor is a standalone network troubleshooting workbench for an engineer's laptop,
+built in Rust with a native GPUI interface. One repository contains the desktop
+application, shared engine libraries, optional collection adapters, and labs.
 
-- `crates/omnisor`: the core asynchronous SSH/device library
-- `crates/omnisor-health`: reusable health and troubleshooting domain logic
-- `apps/omnisor-app`: the ratatui terminal application
+The desktop starts idle with a dark workspace and compact mini-app sidebar.
+Device Health asks for device access and resolves the collection method internally,
+then runs a managed SNMP exporter
+when needed and an OpenTelemetry Collector. Local OTLP feeds CPU/memory/traffic
+history, device details, interface state, and findings. Direct Prometheus endpoints
+and a clearly labeled synthetic pipeline use the same receiver and UI.
 
-The core library remains an asynchronous high-level SSH client for Rust with specialized support for network devices.
-It is built on top of [async-ssh2-tokio]( https://github.com/Miyoshi-Ryota/async-ssh2-tokio) and [russh](https://github.com/warp-tech/russh).
+Profiles and versioned YAML assets live under [collection/](collection/README.md).
+Recorded captures remain available without collection. Persistent investigations,
+broader validated device coverage, and release installers remain future work.
+
+```sh
+cargo run -p omnisor-desktop --features gui
+```
+
+See the [desktop guide](apps/omnisor-desktop/README.md) for native build prerequisites
+and capture-file options. No server, account, or internet connection is required
+to inspect the bundled capture after building.
+
+## Workspace packages
+
+- `apps/omnisor-desktop`: primary GPUI workbench and GUI-independent workspace model
+- `crates/omnisor`: asynchronous SSH/device library and verified sessions
+- `crates/omnisor-health`: reusable health checks and findings
+- `crates/omnisor-telemetry`: OTLP normalization, metric profiles, and initial rules
+- `crates/omnisor-collection`: local Collector/exporter supervision, ingestion, history and rates
+- `collection`: shared pipeline assets, versioned exporter modules, vendor/OS/model profiles
+- `examples/telemetry`: real Prometheus/OTel pipeline examples and captured evidence
+- `tools/omnisor-lab`: synthetic device lab
+
+The existing ratatui application (`apps/omnisor-app`) and its Device Health feature
+remain development clients. The primary product workstream is the GPUI desktop.
 
 > [!WARNING]
-> **This library is not stable yet!**
+> Omnisor is under development. A source profile, synthetic fixture, and validated
+> device/OS combination represent different levels of support.
 
-> [!NOTE]
-> **I will try to keep omnisor in sync with async-ssh2-tokio. Will also try to add potential features and improvements library wide**
+## Collection and troubleshooting
 
-## Features
+The collection direction is adapter-based: Prometheus exporters, OpenTelemetry,
+gNMI/OpenConfig, and structured APIs where available, with explicit SSH diagnostics
+and fallback. The local runtime manages Collector/exporter processes and feeds shared
+observations and bounded history into the desktop after an explicit Start action.
 
-* **Standard SSH Client** - Connect, authenticate, and execute commands on network devices.
-* **Vendor Support** - Built-in support for Cisco, Juniper and more soon enough
-* **Legacy Device Support** - Configurable SSH algorithms for older network equipment
+The existing SSH health collector covers Cisco IOS, IOS-XE, and IOS Legacy command
+formats. Other core SSH profiles do not imply health coverage. The
+[telemetry walkthrough](examples/telemetry/README.md) demonstrates actual Prometheus
+scraping and OTLP delivery, profile-based normalization, and an inspectable local
+example independent of the desktop shell.
+
+## Product direction and roadmap
+
+The [desktop roadmap](ROADMAP.md) and [architecture](docs/product/ARCHITECTURE.md)
+define the current direction: modular local functionality, shared Rust libraries,
+local investigation records, explicit collection status, and bounded laptop resource
+usage. The [compatibility register](docs/product/COMPATIBILITY.md) records validation.
+Prior web/team commercial and pilot proposals are labeled historical.
+
+## Run and test the workspace
+
+```sh
+cargo run -p omnisor-desktop --features gui
+cargo test --workspace
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy -p omnisor-desktop --features gui --all-targets -- -D warnings
+```
+
+Default tests use local validation and synthetic device output; no GNS3 or SSH server
+is needed. Rust dependencies must be downloaded before Cargo can run offline.
+Live SSH/service tests are opt-in through the core crate's `ssh-integration-tests`
+feature. The Docker and local scripts in `tests/` activate that feature and require
+their configured services; see the [core testing guide](crates/omnisor/README.md#testing).
+
+For local network devices, use the [device lab](tests/lab/README.md):
+
+```sh
+./tests/lab.sh start        # Nine synthetic Cisco/Juniper SSH endpoints
+./tests/lab.sh test         # Isolated device/session/health integration tests
+./tests/lab.sh real start   # Shared GNS3/QEMU backend for real OS images
+```
+
+The real-image backend supports software CPU emulation on Apple Silicon;
+vendor images and their compatibility must be validated separately. The lab
+guide includes official image sources and the current platform limitations.
 
 
 ## Install
@@ -198,4 +267,4 @@ async fn main() -> Result<(), omnisor::Error> {
 # Contribution
 
 To contribute to this project all you need is to enjoy working on open source projects and absolutely nothing else. Also be respectful!
-So... fork the repo, fix bugs, potentially optimize, improve docs. Whatever you think this project needs and all will be carefully reviewed/considered
+So... fork the repo, fix bugs, potentially optimize, improve docs. Whatever you think this project needs and all will be carefully reviewed/considered -->

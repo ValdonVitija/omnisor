@@ -1,0 +1,392 @@
+# Generated upstream by prometheus/snmp_exporter v0.29.0; see PROVENANCE.md.
+modules:
+  cisco_device:
+    walk:
+    - 1.3.6.1.2.1.47.1.1.1.1.7
+    - 1.3.6.1.4.1.9.9.109.1.1.1.1.7
+    - 1.3.6.1.4.1.9.9.109.1.1.1.1.8
+    - 1.3.6.1.4.1.9.9.117.1.1.2.1.2
+    - 1.3.6.1.4.1.9.9.221.1.1.1.1.2
+    - 1.3.6.1.4.1.9.9.221.1.1.1.1.3
+    - 1.3.6.1.4.1.9.9.221.1.1.1.1.7
+    - 1.3.6.1.4.1.9.9.221.1.1.1.1.8
+    - 1.3.6.1.4.1.9.9.249.1.1.1
+    - 1.3.6.1.4.1.9.9.25.1.1.1.2
+    - 1.3.6.1.4.1.9.9.48.1.1.1.1
+    - 1.3.6.1.4.1.9.9.48.1.1.1.2
+    - 1.3.6.1.4.1.9.9.48.1.1.1.5
+    - 1.3.6.1.4.1.9.9.48.1.1.1.6
+    - 1.3.6.1.4.1.9.9.91.1.1.1
+    metrics:
+    - name: cpmCPUTotal1minRev
+      oid: 1.3.6.1.4.1.9.9.109.1.1.1.1.7
+      type: gauge
+      help: The overall CPU busy percentage in the last 1 minute period - 1.3.6.1.4.1.9.9.109.1.1.1.1.7
+      indexes:
+      - labelname: cpmCPUTotalIndex
+        type: gauge
+    - name: cpmCPUTotal5minRev
+      oid: 1.3.6.1.4.1.9.9.109.1.1.1.1.8
+      type: gauge
+      help: The overall CPU busy percentage in the last 5 minute period - 1.3.6.1.4.1.9.9.109.1.1.1.1.8
+      indexes:
+      - labelname: cpmCPUTotalIndex
+        type: gauge
+    - name: cefcFRUPowerOperStatus
+      oid: 1.3.6.1.4.1.9.9.117.1.1.2.1.2
+      type: EnumAsStateSet
+      help: Operational FRU power state. - 1.3.6.1.4.1.9.9.117.1.1.2.1.2
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      lookups:
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorScale
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.2
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorType
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.1
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entPhysicalName
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      enum_values:
+        1: offEnvOther
+        2: "on"
+        3: offAdmin
+        4: offDenied
+        5: offEnvPower
+        6: offEnvTemp
+        7: offEnvFan
+        8: failed
+        9: onButFanFail
+        10: offCooling
+        11: offConnectorRating
+        12: onButInlinePowerFail
+    - name: cempMemPoolType
+      oid: 1.3.6.1.4.1.9.9.221.1.1.1.1.2
+      type: gauge
+      help: The type of memory pool for which this entry contains information. - 1.3.6.1.4.1.9.9.221.1.1.1.1.2
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      - labelname: cempMemPoolIndex
+        type: gauge
+      lookups:
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorScale
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.2
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorType
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.1
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entPhysicalName
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      - labels:
+        - cempMemPoolIndex
+        labelname: cempMemPoolType
+        oid: 1.3.6.1.4.1.9.9.221.1.1.1.1.2
+        type: gauge
+      - labels:
+        - cempMemPoolIndex
+        labelname: cempMemPoolName
+        oid: 1.3.6.1.4.1.9.9.221.1.1.1.1.3
+        type: DisplayString
+      enum_values:
+        1: other
+        2: processorMemory
+        3: ioMemory
+        4: pciMemory
+        5: fastMemory
+        6: multibusMemory
+        7: interruptStackMemory
+        8: processStackMemory
+        9: localExceptionMemory
+        10: virtualMemory
+        11: reservedMemory
+        12: imageMemory
+        13: asicMemory
+        14: posixMemory
+    - name: cempMemPoolName
+      oid: 1.3.6.1.4.1.9.9.221.1.1.1.1.3
+      type: DisplayString
+      help: A textual name assigned to the memory pool - 1.3.6.1.4.1.9.9.221.1.1.1.1.3
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      - labelname: cempMemPoolIndex
+        type: gauge
+      lookups:
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorScale
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.2
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorType
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.1
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entPhysicalName
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      - labels:
+        - cempMemPoolIndex
+        labelname: cempMemPoolType
+        oid: 1.3.6.1.4.1.9.9.221.1.1.1.1.2
+        type: gauge
+      - labels:
+        - cempMemPoolIndex
+        labelname: cempMemPoolName
+        oid: 1.3.6.1.4.1.9.9.221.1.1.1.1.3
+        type: DisplayString
+    - name: cempMemPoolUsed
+      oid: 1.3.6.1.4.1.9.9.221.1.1.1.1.7
+      type: gauge
+      help: Indicates the number of bytes from the memory pool that are currently
+        in use by applications on the physical entity. - 1.3.6.1.4.1.9.9.221.1.1.1.1.7
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      - labelname: cempMemPoolIndex
+        type: gauge
+      lookups:
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorScale
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.2
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorType
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.1
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entPhysicalName
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      - labels:
+        - cempMemPoolIndex
+        labelname: cempMemPoolType
+        oid: 1.3.6.1.4.1.9.9.221.1.1.1.1.2
+        type: gauge
+      - labels:
+        - cempMemPoolIndex
+        labelname: cempMemPoolName
+        oid: 1.3.6.1.4.1.9.9.221.1.1.1.1.3
+        type: DisplayString
+    - name: cempMemPoolFree
+      oid: 1.3.6.1.4.1.9.9.221.1.1.1.1.8
+      type: gauge
+      help: Indicates the number of bytes from the memory pool that are currently
+        unused on the physical entity - 1.3.6.1.4.1.9.9.221.1.1.1.1.8
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      - labelname: cempMemPoolIndex
+        type: gauge
+      lookups:
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorScale
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.2
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorType
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.1
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entPhysicalName
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      - labels:
+        - cempMemPoolIndex
+        labelname: cempMemPoolType
+        oid: 1.3.6.1.4.1.9.9.221.1.1.1.1.2
+        type: gauge
+      - labels:
+        - cempMemPoolIndex
+        labelname: cempMemPoolName
+        oid: 1.3.6.1.4.1.9.9.221.1.1.1.1.3
+        type: DisplayString
+    - name: ceImageIndex
+      oid: 1.3.6.1.4.1.9.9.249.1.1.1.1.1
+      type: gauge
+      help: The entPhysicalIndex from the ENTITY-MIB of the physical entity that runs
+        this OS image. - 1.3.6.1.4.1.9.9.249.1.1.1.1.1
+      indexes:
+      - labelname: ceImageIndex
+        type: gauge
+    - name: ceImageName
+      oid: 1.3.6.1.4.1.9.9.249.1.1.1.1.2
+      type: DisplayString
+      help: Name of the running OS image - 1.3.6.1.4.1.9.9.249.1.1.1.1.2
+      indexes:
+      - labelname: ceImageIndex
+        type: gauge
+    - name: ceImageFamily
+      oid: 1.3.6.1.4.1.9.9.249.1.1.1.1.3
+      type: DisplayString
+      help: Family of the running OS image - 1.3.6.1.4.1.9.9.249.1.1.1.1.3
+      indexes:
+      - labelname: ceImageIndex
+        type: gauge
+    - name: ceImageFeature
+      oid: 1.3.6.1.4.1.9.9.249.1.1.1.1.4
+      type: DisplayString
+      help: Feature set supported on this image - 1.3.6.1.4.1.9.9.249.1.1.1.1.4
+      indexes:
+      - labelname: ceImageIndex
+        type: gauge
+    - name: ceImageVersion
+      oid: 1.3.6.1.4.1.9.9.249.1.1.1.1.5
+      type: DisplayString
+      help: Version of the running OS image. - 1.3.6.1.4.1.9.9.249.1.1.1.1.5
+      indexes:
+      - labelname: ceImageIndex
+        type: gauge
+    - name: ceImageMedia
+      oid: 1.3.6.1.4.1.9.9.249.1.1.1.1.6
+      type: gauge
+      help: Media on which the image represented by this entry is running. - 1.3.6.1.4.1.9.9.249.1.1.1.1.6
+      indexes:
+      - labelname: ceImageIndex
+        type: gauge
+      enum_values:
+        1: ram
+        2: rom
+        3: other
+    - name: ceImageDescription
+      oid: 1.3.6.1.4.1.9.9.249.1.1.1.1.7
+      type: DisplayString
+      help: Description of running OS image. - 1.3.6.1.4.1.9.9.249.1.1.1.1.7
+      indexes:
+      - labelname: ceImageIndex
+        type: gauge
+    - name: ciscoImageString
+      oid: 1.3.6.1.4.1.9.9.25.1.1.1.2
+      type: DisplayString
+      help: The string of this entry. - 1.3.6.1.4.1.9.9.25.1.1.1.2
+      indexes:
+      - labelname: ciscoImageIndex
+        type: gauge
+    - name: ciscoMemoryPoolUsed
+      oid: 1.3.6.1.4.1.9.9.48.1.1.1.5
+      type: gauge
+      help: Indicates the number of bytes from the memory pool that are currently
+        in use by applications on the managed device. - 1.3.6.1.4.1.9.9.48.1.1.1.5
+      indexes:
+      - labelname: ciscoMemoryPoolType
+        type: EnumAsInfo
+      lookups:
+      - labels:
+        - ciscoMemoryPoolType
+        labelname: ciscoMemoryPoolName
+        oid: 1.3.6.1.4.1.9.9.48.1.1.1.2
+        type: DisplayString
+    - name: ciscoMemoryPoolFree
+      oid: 1.3.6.1.4.1.9.9.48.1.1.1.6
+      type: gauge
+      help: Indicates the number of bytes from the memory pool that are currently
+        unused on the managed device - 1.3.6.1.4.1.9.9.48.1.1.1.6
+      indexes:
+      - labelname: ciscoMemoryPoolType
+        type: EnumAsInfo
+      lookups:
+      - labels:
+        - ciscoMemoryPoolType
+        labelname: ciscoMemoryPoolName
+        oid: 1.3.6.1.4.1.9.9.48.1.1.1.2
+        type: DisplayString
+    - name: entSensorPrecision
+      oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.3
+      type: gauge
+      help: This variable indicates the number of decimal places of precision in fixed-point
+        sensor values reported by entSensorValue - 1.3.6.1.4.1.9.9.91.1.1.1.1.3
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      lookups:
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorScale
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.2
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorType
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.1
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entPhysicalName
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+    - name: entSensorValue
+      oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.4
+      type: gauge
+      help: This variable reports the most recent measurement seen by the sensor -
+        1.3.6.1.4.1.9.9.91.1.1.1.1.4
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      lookups:
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorScale
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.2
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorType
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.1
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entPhysicalName
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+    - name: entSensorStatus
+      oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.5
+      type: gauge
+      help: This variable indicates the present operational status of the sensor.
+        - 1.3.6.1.4.1.9.9.91.1.1.1.1.5
+      indexes:
+      - labelname: entPhysicalIndex
+        type: gauge
+      lookups:
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorScale
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.2
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entSensorType
+        oid: 1.3.6.1.4.1.9.9.91.1.1.1.1.1
+        type: gauge
+      - labels:
+        - entPhysicalIndex
+        labelname: entPhysicalName
+        oid: 1.3.6.1.2.1.47.1.1.1.1.7
+        type: DisplayString
+      enum_values:
+        1: ok
+        2: unavailable
+        3: nonoperational

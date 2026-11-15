@@ -1,15 +1,39 @@
+#![doc = include_str!("../README.md")]
+
 mod cisco;
+mod monitor;
+mod provider;
+
+pub use cisco::CiscoIosHealthProvider;
+pub use monitor::{HealthSessionOptions, LiveHealthSession};
+pub use provider::{
+    CommandExecutor, CommandFuture, HealthError, HealthFuture, HealthProvider, HealthTarget,
+    builtin_health_provider, collect_health_with_executor, collect_health_with_provider,
+    supported_health_vendors,
+};
 
 use omnisor::device::DeviceVendor;
 use std::time::Instant;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HealthConnectionConfig {
     pub address: String,
     pub port: u16,
     pub username: String,
     pub password: String,
     pub vendor: DeviceVendor,
+}
+
+impl std::fmt::Debug for HealthConnectionConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HealthConnectionConfig")
+            .field("address", &self.address)
+            .field("port", &self.port)
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .field("vendor", &self.vendor)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -58,7 +82,10 @@ pub struct DeviceIdentity {
 #[derive(Debug, Clone)]
 pub struct SystemHealth {
     pub status: SectionStatus,
+    /// CPU utilization averaged over one minute, when provided by the device.
     pub cpu_percent: Option<f32>,
+    /// CPU utilization averaged over five minutes, when provided by the device.
+    pub cpu_five_minute_percent: Option<f32>,
     pub memory_percent: Option<f32>,
     pub uptime: Option<String>,
 }
@@ -195,24 +222,17 @@ pub struct InterfaceDistribution {
 pub async fn collect_device_health(
     config: &HealthConnectionConfig,
 ) -> Result<DeviceHealthSnapshot, String> {
-    match &config.vendor {
-        DeviceVendor::Cisco(variant) => cisco::collect_cisco_device_health(config, *variant).await,
-        DeviceVendor::Juniper(variant) => Err(format!(
-            "device health is not implemented yet for {}",
-            juniper_label(*variant)
-        )),
-        DeviceVendor::Custom(_) => {
-            Err("device health is not implemented yet for custom device profiles".to_string())
-        }
-        _ => Err("device health is not implemented yet for this device vendor".to_string()),
-    }
+    let provider = builtin_health_provider(&config.vendor).map_err(|err| err.to_string())?;
+    collect_health_with_provider(config, provider.as_ref())
+        .await
+        .map_err(|err| err.to_string())
 }
 
 pub async fn collect_cisco_device_health(
     config: &HealthConnectionConfig,
 ) -> Result<DeviceHealthSnapshot, String> {
     match &config.vendor {
-        DeviceVendor::Cisco(variant) => cisco::collect_cisco_device_health(config, *variant).await,
+        DeviceVendor::Cisco(_) => collect_device_health(config).await,
         _ => Err("collect_cisco_device_health requires a Cisco device vendor".to_string()),
     }
 }
@@ -221,7 +241,12 @@ pub fn findings_status(findings: &[Finding]) -> SectionStatus {
     if findings.is_empty() {
         return SectionStatus::Ok;
     }
-    combine_statuses(&findings.iter().map(|finding| finding.status).collect::<Vec<_>>())
+    combine_statuses(
+        &findings
+            .iter()
+            .map(|finding| finding.status)
+            .collect::<Vec<_>>(),
+    )
 }
 
 pub fn combine_statuses(statuses: &[SectionStatus]) -> SectionStatus {
@@ -282,14 +307,6 @@ pub(crate) fn derive_neighbors_status(
     SectionStatus::Ok
 }
 
-fn juniper_label(variant: omnisor::JuniperVariant) -> &'static str {
-    match variant {
-        omnisor::JuniperVariant::Junos => "Juniper Junos",
-        omnisor::JuniperVariant::ScreenOs => "Juniper ScreenOS",
-        _ => "Juniper Device",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,6 +323,7 @@ mod tests {
             system: SystemHealth {
                 status: SectionStatus::Warning,
                 cpu_percent: Some(82.0),
+                cpu_five_minute_percent: Some(75.0),
                 memory_percent: None,
                 uptime: Some("1 week".to_string()),
             },
@@ -384,7 +402,9 @@ mod tests {
             .build()
             .unwrap();
 
-        let err = runtime.block_on(collect_device_health(&config)).unwrap_err();
+        let err = runtime
+            .block_on(collect_device_health(&config))
+            .unwrap_err();
         assert!(err.contains("Juniper Junos"));
     }
 
@@ -403,7 +423,9 @@ mod tests {
             .build()
             .unwrap();
 
-        let err = runtime.block_on(collect_cisco_device_health(&config)).unwrap_err();
+        let err = runtime
+            .block_on(collect_cisco_device_health(&config))
+            .unwrap_err();
         assert!(err.contains("requires a Cisco device vendor"));
     }
 

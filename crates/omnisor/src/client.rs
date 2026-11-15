@@ -107,7 +107,7 @@ impl AuthMethod {
     ///
     /// # Example
     /// ```no_run
-    /// use async_ssh2_tokio::client::AuthMethod;
+    /// use omnisor::client::AuthMethod;
     ///
     /// let auth = AuthMethod::with_agent();
     /// ```
@@ -209,10 +209,10 @@ impl ServerCheckMethod {
 /// # Examples
 ///
 /// ```no_run
-/// use async_ssh2_tokio::{Client, AuthMethod, ServerCheckMethod};
+/// use omnisor::{Client, AuthMethod, ServerCheckMethod};
 /// #[tokio::main]
-/// async fn main() -> Result<(), async_ssh2_tokio::Error> {
-///     let mut client = Client::connect(
+/// async fn main() -> Result<(), omnisor::Error> {
+///     let client = Client::connect(
 ///         ("10.10.10.2", 22),
 ///         "root",
 ///         AuthMethod::with_password("root"),
@@ -533,7 +533,11 @@ impl Client {
         // start sftp session
         let channel = self.get_channel().await?;
         channel.request_subsystem(true, "sftp").await?;
-        let sftp = SftpSession::new_opts(channel.into_stream(), timeout_seconds).await?;
+        let mut sftp_config = russh_sftp::client::Config::default();
+        if let Some(timeout_seconds) = timeout_seconds {
+            sftp_config.request_timeout_secs = timeout_seconds;
+        }
+        let sftp = SftpSession::new_with_config(channel.into_stream(), sftp_config).await?;
 
         let file_size = tokio::fs::metadata(&src_file_path).await?.len();
         // read file contents locally
@@ -763,12 +767,12 @@ impl Client {
     /// Example:
     ///
     /// ```no_run
-    /// use async_ssh2_tokio::{Client, AuthMethod, ServerCheckMethod};
+    /// use omnisor::{Client, AuthMethod, ServerCheckMethod};
     /// use tokio::sync::mpsc;
     ///
     /// #[tokio::main]
-    /// async fn main() -> Result<(), async_ssh2_tokio::Error> {
-    ///     let mut client = Client::connect(
+    /// async fn main() -> Result<(), omnisor::Error> {
+    ///     let client = Client::connect(
     ///         ("10.10.10.2", 22),
     ///         "root",
     ///         AuthMethod::with_password("root"),
@@ -1001,6 +1005,24 @@ impl Handler for ClientHandler {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn invalid_address() {
+        let result = Client::connect(
+            "this is definitely not an address",
+            "username",
+            AuthMethod::with_password("password"),
+            ServerCheckMethod::NoCheck,
+        )
+        .await;
+
+        assert!(matches!(result, Err(crate::Error::AddressInvalid(_))));
+    }
+}
+
+#[cfg(all(test, feature = "ssh-integration-tests"))]
+mod ssh_integration_tests {
     #![allow(deprecated, clippy::useless_vec)]
 
     use crate::client::*;
@@ -1317,18 +1339,6 @@ mod tests {
             crate::Error::PasswordWrong => {}
             _ => panic!("Wrong error type"),
         }
-    }
-
-    #[tokio::test]
-    async fn invalid_address() {
-        let no_client = Client::connect(
-            "this is definitely not an address",
-            &env("ASYNC_SSH2_TEST_HOST_USER"),
-            AuthMethod::with_password("hopefully the wrong password"),
-            ServerCheckMethod::NoCheck,
-        )
-        .await;
-        assert!(no_client.is_err());
     }
 
     #[tokio::test]
