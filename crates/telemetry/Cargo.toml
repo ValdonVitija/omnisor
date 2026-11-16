@@ -1,0 +1,13 @@
+[package]
+name = "telemetry"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish = false
+description = "OTLP metric normalization independent of device transports and user interfaces"
+
+[dependencies]
+opentelemetry-proto = { version = "0.31", default-features = false, features = ["gen-tonic-messages", "metrics", "with-serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror.workspace = true

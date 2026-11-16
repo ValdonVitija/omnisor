@@ -21,7 +21,7 @@ that leads to action or useful verification. Measure these outcomes in the
 
 | Offer | Value to validate | Revenue role and boundary |
 | --- | --- | --- |
-| Community | Open SSH library and assessment engine; standalone TUI; basic single-operator web assessments, scheduling, local history, comparisons, and exports | Useful adoption path and contribution surface |
+| Community | Open SSH library and assessment engine; basic single-operator web assessments, scheduling, local history, comparisons, and exports | Useful adoption path and contribution surface |
 | Team | Shared review, finding ownership/acknowledgements, notes, shared policies, scheduled delivery, selected integrations, and supported releases | Primary recurring subscription; prioritize the smallest workflow that a pilot buyer values |
 | Onboarding | Installation, credential/trust setup, initial assessment configuration, and an agreed integration | Fixed-scope early revenue and customer learning |
 | Managed hosting | Operated workspace, upgrades, backups, and collection from inside the customer environment | Later subscription once demand and revenue can fund reliable operation |
