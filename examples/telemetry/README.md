@@ -24,7 +24,7 @@ for the synthetic example.
 Terminal 1:
 
 ```sh
-cargo run -p omnisor-telemetry-demo
+cargo run -p telemetry-demo
 ```
 
 Terminal 2:
@@ -150,7 +150,7 @@ to stop collection. Editing mappings does not require changing transport or rule
 code; restart the demo to load configuration.
 
 ```sh
-OMNISOR_TELEMETRY_CONFIG=/path/to/profiles.json cargo run -p omnisor-telemetry-demo
+OMNISOR_TELEMETRY_CONFIG=/path/to/profiles.json cargo run -p telemetry-demo
 ```
 
 Unmapped gauge/counter points, including Collector scrape metadata, are counted
@@ -205,8 +205,8 @@ boundary; this example does not implement that adapter.
 Offline Rust checks:
 
 ```sh
-cargo test -p omnisor-telemetry -p omnisor-telemetry-demo
-cargo clippy -p omnisor-telemetry -p omnisor-telemetry-demo --all-targets -- -D warnings
+cargo test -p telemetry -p telemetry-demo
+cargo clippy -p telemetry -p telemetry-demo --all-targets -- -D warnings
 ```
 
 Real Collector smoke test:
@@ -225,7 +225,7 @@ from an actual successful run for reading without starting the processes.
 
 ## Boundary with the desktop application
 
-`crates/omnisor-telemetry` owns reusable profile normalization and initial rules;
+`crates/telemetry` owns reusable profile normalization and initial rules;
 it has no HTTP, SSH, broker, or database dependency. The demo tool owns loopback
 HTTP ingestion, synthetic exporter endpoints, bounded inspection captures, and
 the page. The existing SSH dashboards continue to use their current collector.
@@ -237,7 +237,7 @@ acknowledgement means in-memory acceptance, not durable delivery. The Collector'
 disk-backed queue protects pending exports; it cannot make this receiver durable.
 
 The primary application is now the standalone GPUI workbench in
-`apps/omnisor-desktop`. Its `omnisor-collection` runtime now supervises the
+`app`. Its `collection` runtime now supervises the
 Collector and optional SNMP exporter after connection setup, receives authenticated
 local OTLP, and presents bounded live history. The runtime configuration catalog
 is under [`collection/`](../../collection/README.md); these files remain a standalone

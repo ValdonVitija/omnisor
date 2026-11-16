@@ -125,7 +125,6 @@ evidence reference for each applicable scenario.
 | Comparison/export | Stable identities support previous-run comparisons; changed scope or missing coverage is visible; reports preserve source run references |
 | Fleet | Exercise simulated fleets of 10, 50, and 100 devices with delays and failures; measure duration, memory/CPU, storage growth, and concurrency limits |
 | Device impact | Verify collection frequency, commands, and resource impact on representative real devices independently of simulated scale |
-| TUI | Selected local workflows use the shared engine and remain usable as a standalone single binary |
 
 Existing checks for code changes:
 

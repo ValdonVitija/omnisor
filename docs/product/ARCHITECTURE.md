@@ -1,13 +1,13 @@
 # Standalone desktop architecture
 
 Direction updated 2026-11-13: Omnisor is one standalone network troubleshooting
-application in one Rust workspace. GPUI is the primary interface on the engineer's
+application in one Rust workspace. GPUI is the only application interface on the engineer's
 laptop. The application owns local collection and investigation state; normal use
 does not require SaaS accounts, a web server, message brokers, or external databases.
 
 ## Current implementation
 
-`apps/omnisor-desktop` provides the GPUI workbench and a GUI-independent workspace
+`app` provides the GPUI workbench and a GUI-independent workspace
 model. It starts with a compact persistent mini-app sidebar and a Device Health
 start view, without loading data or starting collection. The sidebar is generated
 from the registry and scrolls as tools are added; health subviews use a separate tab row.
@@ -15,19 +15,19 @@ Selecting Device Health opens device setup. The engineer selects a saved device
 or supplies an address, device family and required access credentials. Internal
 profile/site policy selects the protocol, exporter, cadence and mappings; these
 are not connection-form choices. Explicit Connect creates a local
-`omnisor-collection` session: optional SNMP exporter, Collector, authenticated OTLP
+`collection` session: optional SNMP exporter, Collector, authenticated OTLP
 receiver, normalization, bounded history/rates, and immutable desktop snapshots.
 Direct Prometheus and synthetic paths use the same ingestion architecture. The
 live overview graphs CPU, memory and traffic, with device identity provenance and
-freshness-aware summaries. Recorded evidence still starts no collection.
+freshness-aware summaries. Capture-file import is currently unavailable.
 
 This first runtime supports one active desktop device session. Persistent local
 workspaces, component pooling, binary distribution, model discovery and broader
 hardware validation remain future work. See [collection design](../../collection/README.md)
 for implemented configuration layout, statistical semantics, limits and validation.
 
-Existing SSH libraries, health checks, telemetry examples, synthetic labs and TUI
-clients remain reusable assets; TUI feature parity is not a desktop release gate.
+SSH connectivity, health checks, telemetry processing, and synthetic labs remain
+reusable Rust libraries and development tools independent of the GPUI application.
 
 ## Mini apps and capability ownership
 
@@ -37,7 +37,7 @@ observation views are internal health subviews, not separate top-level mini-apps
 Configuration comparison and IP utilities have no metric dependency. Protocol
 inspection can need device access without implying a metrics pipeline.
 
-Opening a tool selects its UI only. Opening recorded evidence uses no collector.
+Opening a tool selects its UI only and starts no collectors.
 Only an explicit live operation can request capabilities from the runtime.
 The runtime must acquire the required components for that operation, and release
 its ownership on stop/exit; unrelated tools must not start a global collection stack.
@@ -76,11 +76,11 @@ GPUI's foreground executor; GPUI tasks cannot assume a Tokio runtime is present.
 
 | Location | Responsibility |
 | --- | --- |
-| `apps/omnisor-desktop` | GPUI shell, workspace state, tool routing, presentation |
-| `crates/omnisor` | SSH transport, device sessions, trust policies |
-| `crates/omnisor-health` | Existing health checks, status and findings |
-| `crates/omnisor-telemetry` | OTLP types, profile mappings, canonical observations, initial rules |
-| `crates/omnisor-collection` | Typed plans/profiles, process supervision, local OTLP, bounded history/rates, snapshots |
+| `app` | GPUI shell, workspace state, tool routing, presentation |
+| `crates/ssh` | SSH transport, device sessions, trust policies |
+| `crates/health` | Existing health checks, status and findings |
+| `crates/telemetry` | OTLP types, profile mappings, canonical observations, initial rules |
+| `crates/collection` | Typed plans/profiles, process supervision, local OTLP, bounded history/rates, snapshots |
 | `collection` | Shared Collector config, pinned generated exporter modules, vendor/OS/model profiles |
 | Future local storage crate | Inventory, investigations, observations, migrations, retention |
 | `examples/telemetry` | Runnable collector configs, profiles, captured sample evidence |
